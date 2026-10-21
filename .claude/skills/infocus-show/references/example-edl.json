@@ -1,0 +1,151 @@
+{
+  "show": "InFocus Show 10-06-2026",
+  "package": "/path/to/InFocus 2026 Package",
+  "fps": "60000/1001",
+  "source": "/path/to/job/source.mov",
+  "audio": {
+    "peak_dbfs": -6,
+    "dialogue_lufs": -19.5,
+    "channels": [
+      0,
+      1
+    ]
+  },
+  "segments": [
+    {
+      "id": "intro",
+      "kind": "file",
+      "path": "{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4"
+    },
+    {
+      "id": "open",
+      "kind": "source",
+      "cam": "M",
+      "in": 3524,
+      "out": 4684,
+      "note": "Take 2 open (take 1 at 0:21 was the 'Wednesday' false start)"
+    },
+    {
+      "id": "college_visits",
+      "kind": "source",
+      "cam": "L",
+      "in": 6260,
+      "out": 7494,
+      "note": "Retake at 1:44 (first try at 1:19 broke down)",
+      "card": {
+        "title": "College visits tomorrow",
+        "points": [
+          "Michigan State 9:05AM",
+          "Northeastern University, 9:50 AM",
+          "University of Arizona 10:45 AM"
+        ]
+      }
+    },
+    {
+      "id": "college_fair",
+      "kind": "source",
+      "cam": "R",
+      "in": 20970,
+      "out": 22954,
+      "note": "College Fair take 3, the only complete read (takes at 2:06 and 3:28 broke off). Starts a live run through DIY and Pies",
+      "card": {
+        "title": "College Fair",
+        "points": [
+          "Monday Oct 12",
+          "6:30-8:30 PM",
+          "Bring your student ID to sign up",
+          "Peery center"
+        ]
+      }
+    },
+    {
+      "id": "diy_magazines",
+      "kind": "source",
+      "cam": "L",
+      "in": 22954,
+      "out": 24406,
+      "note": "Live run continues (switcher cut); split here only so each anchor's mic can be levelled",
+      "card": {
+        "title": "DIY Magazines",
+        "points": [
+          "Mini Magazines",
+          "zine-making workshop",
+          "October 4 and 18"
+        ]
+      }
+    },
+    {
+      "id": "dance_pies",
+      "kind": "source",
+      "cam": "R",
+      "in": 24406,
+      "out": 25315,
+      "note": "Live run continues (switcher cut)",
+      "card": {
+        "title": "PALY Dance Pies",
+        "points": [
+          "Frozen Pies from Gizdich Ranch",
+          "25 dollars each"
+        ]
+      }
+    },
+    {
+      "id": "throw",
+      "kind": "source",
+      "cam": "M",
+      "in": 25339,
+      "out": 25554,
+      "note": "Throw to package. Skips the 0.4 s full-screen Pies card flash at 7:02.4"
+    },
+    {
+      "id": "package",
+      "kind": "placeholder",
+      "seconds": 5,
+      "note": "Spirit Week Day 1 Recap package goes here (not in the recording)",
+      "label": "Spirit Week Day 1 Recap"
+    },
+    {
+      "id": "close",
+      "kind": "source",
+      "cam": "M",
+      "in": 27262,
+      "out": 28588,
+      "note": "Close take 2 (take 1 at 7:10 stumbled and the outro fired by mistake)"
+    },
+    {
+      "id": "outro",
+      "kind": "file",
+      "path": "{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4"
+    }
+  ],
+  "overlays": [
+    {
+      "id": "dual_anchors",
+      "at": 3620,
+      "fps": "30000/1001",
+      "covers": [
+        3624,
+        3931
+      ],
+      "render": {
+        "type": "dual",
+        "name1": "Abby Smith",
+        "title1": "InFocus Anchor",
+        "name2": "Otto Lee",
+        "title2": "InFocus Anchor",
+        "duration": 5300
+      },
+      "note": "one 29.97 frame ahead of the old dual third"
+    },
+    {
+      "id": "follow",
+      "at": 27275,
+      "covers": [
+        27277,
+        27682
+      ],
+      "file": "{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov",
+      "note": "same template as the old card: start 2 HD frames before its first visible frame = frame-for-frame"
+    }
+  ]
+}

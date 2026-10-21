@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "result.json written by the infocus-show skill at the end of every run",
+  "type": "object",
+  "required": ["output", "poster", "decisions", "checks", "needsReview"],
+  "properties": {
+    "output": {"type": ["string", "null"]},
+    "poster": {"type": ["string", "null"]},
+    "decisions": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["kind", "detail", "flagged"],
+        "properties": {
+          "kind": {"enum": ["name", "typo", "take", "package", "fixup", "card_mismatch", "lyrics", "other"]},
+          "detail": {"type": "string", "maxLength": 300},
+          "flagged": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": ["coversClean", "loudness"],
+      "properties": {
+        "coversClean": {"type": "boolean"},
+        "loudness": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["segment", "peak", "ok"],
+            "properties": {
+              "segment": {"type": "string"},
+              "lufs": {"type": ["number", "null"]},
+              "peak": {"type": ["number", "null"]},
+              "ok": {"type": "boolean"}
+            }
+          }
+        },
+        "failures": {"type": "array", "items": {"type": "object", "required": ["rule", "detail"]}}
+      }
+    },
+    "needsReview": {"type": "boolean"},
+    "reply": {"type": ["string", "null"], "maxLength": 1000},
+    "abort": {"type": ["string", "null"], "maxLength": 1000}
+  }
+}

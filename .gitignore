@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.env*
+# Show media, renders, rosters and anything with real names stays out of git
+*.mov
+*.mp4
+*.wav
+fixtures/
+jobs/
+house-rules.md
+.claude/skills/infocus-show/scripts/bin/
+.claude/settings.local.json

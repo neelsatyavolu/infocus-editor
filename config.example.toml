@@ -1,0 +1,17 @@
+# ~/InFocusEditor/config.toml. The setup app writes it; only portal_url is needed.
+# Everything else is managed in the Portal (Automatic editing): AI accounts, agent order,
+# house rules, update pin. The editor token comes from linking (InFocus Editor Setup → Link).
+
+portal_url = "https://portal.example.org"
+
+# Optional (defaults shown)
+# package_dir = "~/InFocusEditor/package"   # the graphics package (setup copies it here)
+# work_root = "~/InFocusEditor/jobs"
+# agents = ["claude", "codex", "grok"]      # fallback order if the Portal hasn't set one
+# max_turns = 300
+# max_budget_usd = 10                       # optional Claude spend cap (estimated)
+# run_timeout_minutes = 75
+# keep_days = 14
+# update_repo = "neelsatyavolu/infocus-editor"
+# auto_update = true                        # default: true only for the <data dir>/app checkout
+# require_signed_tags = false

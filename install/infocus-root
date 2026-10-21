@@ -1,0 +1,71 @@
+#!/bin/bash
+# infocus-root: the only thing the editor's macOS account may run as root
+# (via /etc/sudoers.d/infocus-editor). A fixed allowlist with strict argument
+# checks; anything else exits 2. It can't update itself: a new version needs
+# an admin to approve install.sh again.
+#
+#   infocus-root status
+#   infocus-root apply-power
+#   infocus-root update-clt
+#
+# INFOCUS_ROOT_DRY_RUN=1 (honoured only when not root) validates and prints
+# what would run, so tests can exercise the checks without root.
+set -euo pipefail
+
+HELPER_VERSION=1
+
+if [ "$(id -u)" -eq 0 ]; then
+  DRY_RUN=0
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin
+  export PATH
+  umask 022
+else
+  DRY_RUN="${INFOCUS_ROOT_DRY_RUN:-0}"
+  if [ "$DRY_RUN" != "1" ]; then
+    echo "infocus-root must run through sudo" >&2
+    exit 2
+  fi
+fi
+
+usage() {
+  echo "usage: infocus-root status | apply-power | update-clt" >&2
+  exit 2
+}
+
+run() {
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "would run: $*"
+  else
+    "$@"
+  fi
+}
+
+cmd_status() {
+  echo "helper_version=$HELPER_VERSION"
+  clt=$(pkgutil --pkg-info com.apple.pkg.CLTools_Executables 2>/dev/null | awk '/^version:/ {print $2}' || true)
+  echo "clt_version=${clt:-missing}"
+  pmset -g custom 2>/dev/null | awk '/AC Power/ {ac=1} ac && /^ *(sleep|autorestart|womp) / {print "ac_" $1 "=" $2}' || true
+}
+
+cmd_apply_power() {
+  # Never sleep on the power adapter, restart after a power cut, wake for network.
+  run pmset -c sleep 0 disksleep 0 autorestart 1 womp 1
+}
+
+cmd_update_clt() {
+  labels=$(softwareupdate --list 2>/dev/null | sed -n 's/^[[:space:]]*\* Label: \(Command Line Tools.*\)$/\1/p' || true)
+  if [ -z "$labels" ]; then
+    echo "Command Line Tools are up to date"
+    return 0
+  fi
+  label=$(printf '%s\n' "$labels" | tail -n 1)
+  run softwareupdate --install "$label"
+}
+
+[ $# -ge 1 ] || usage
+case "$1" in
+  status)      [ $# -eq 1 ] || usage; cmd_status ;;
+  apply-power) [ $# -eq 1 ] || usage; cmd_apply_power ;;
+  update-clt)  [ $# -eq 1 ] || usage; cmd_update_clt ;;
+  *) usage ;;
+esac

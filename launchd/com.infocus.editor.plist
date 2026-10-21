@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- A user agent (not a daemon): it needs the logged-in session's Keychain and VideoToolbox.
+     install/user-setup.sh fills in __REPO__, __HOME__, __UV__ and __DATA__. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.infocus.editor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string> <!-- dedicated -->
+    <string>-dimsu</string> <!-- dedicated -->
+    <string>__UV__</string>
+    <string>run</string>
+    <string>--project</string>
+    <string>__REPO__</string>
+    <string>infocus-editor</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/opt/homebrew/sbin:__HOME__/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>INFOCUS_EDITOR_HOME</key>
+    <string>__DATA__</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- KeepAlive restarts it after any exit: 10 = updated to a new release, 11 = restart or repair
+       asked for in the Portal. ThrottleInterval is the minimum time between two starts: a run that
+       lasted longer restarts at once; one that exits sooner (an update at start-up) waits the rest. -->
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/infocus-editor.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/infocus-editor.log</string>
+</dict>
+</plist>

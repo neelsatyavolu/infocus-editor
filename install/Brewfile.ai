@@ -1,0 +1,2 @@
+# AI command-line tools (step "ai"). The Grok CLI comes from xAI's own installer instead.
+cask "codex"

@@ -1,0 +1,43 @@
+[project]
+name = "infocus-editor"
+version = "0.1.0"
+description = "Unattended editing of a student broadcast's switcher recording, driven by a Claude agent and DaVinci Resolve"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+  "claude-agent-sdk",
+  "httpx",
+  "pynacl>=1.6.2",
+]
+
+[project.scripts]
+infocus-editor = "editor.main:cli"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  # skill script tests
+  "numpy",
+  "pillow",
+  "soundfile",
+  "opencv-python",
+  "jsonschema",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "golden: runs the real agent and Resolve on the editing Mac (slow, costs money)",
+  "fixtures: needs the private show fixtures in ~/InFocusEditor/fixtures",
+]
+addopts = "-m 'not golden'"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["editor"]

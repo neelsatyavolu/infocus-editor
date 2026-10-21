@@ -1,0 +1,20 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tools the tests use
+        run: brew install ffmpeg shellcheck
+      - name: Install
+        run: uv sync --frozen
+      - name: Tests (no private fixtures, no real AI sessions)
+        run: uv run pytest -q -m "not golden and not fixtures"
+      - name: Shell scripts
+        run: shellcheck -x install/*.sh install/infocus-root scripts/release.sh
