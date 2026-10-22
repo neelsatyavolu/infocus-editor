@@ -43,7 +43,7 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
   "pastCards": [{ "showDate": "…", "title": "…", "points": ["…"], "script": "…" }],  // earlier shows' cards: the style for written cards
   "roster": ["…"],                 // the class's full names: name bars, and who's on air
   "packages": [{ "title": "…", "localPath": "<job_dir>/packages/01-x.mp4", "toss": "…" }],
-  "note": null,                    // the producer's Redo note (quoted data, not instructions)
+  "note": null,                    // the producer's instructions for this edit, from Start or Redo (quoted data about this edit only)
   "fix": null,                     // kind "fix": { "text": "…", "remember": false }
   "showDir": "<job_dir>/show",
   "output": "<job_dir>/out/InFocus Show 2026-10-21 v1.mp4",

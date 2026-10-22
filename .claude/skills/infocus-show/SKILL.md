@@ -37,7 +37,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   - `announcements`: the script's announcement text, in reading order
   - `pastCards`: announcement cards from earlier shows, newest first, each `{ showDate, title, points, script }` (`script` is the announcement text the card was made from, or null). The house style for cards you write yourself.
   - `packages`: the queued packages, in order, each with `localPath` and `toss`
-  - `note`: the producer's Redo note, or null
+  - `note`: the producer's instructions for this edit (typed at Start or Redo), or null
   - `fix`: the fix request, or null
   - `showDir`: your working folder. It holds `edl.json`, `Graphics/`, `Foreground/`, `Audio/`, `analysis/`, `check/` and `layout.json`.
   - `output`, `poster`: where the final render and poster go
@@ -57,7 +57,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
 
 ## House rules come first
 
-Read `brief.houseRules` before anything else. Its rules beat your own judgment.
+Read `brief.houseRules` before anything else. Its rules beat your own judgment, and `brief.note` (the producer's instructions for this show) beats the house rules for this edit.
 - Apply them without asking, and record each one you apply as a decision.
 - Flag a decision (`"flagged": true`) only when no rule covers it.
 
@@ -138,7 +138,7 @@ Apply these rules (plus the house rules) and record each as a decision:
 - **Card vs script:** compare each filmed card with `brief.announcements`. If they differ beyond a typo, keep the filmed text and flag `card_mismatch`.
 - **Packages:** use `brief.packages`, in order, as `file` segments at each throw (`"path": <localPath>`, `"audio": "match"`). On each, set `"toss_said"` to what the anchor says in the throw you kept, as clean sentences (fix whisper's spellings of names from `brief.roster` and the package's `toss`); the Portal uses it for the YouTube description when the package has no written toss. If the anchors throw to more packages than the brief has, use a `placeholder` segment and flag a `package` decision. Never pull in a file from anywhere else.
 - **Package music:** transcribe or listen to it. Explicit lyrics get a flagged `lyrics` decision.
-- **Producer's note:** if `brief.note` is set, follow it where it's about this edit, and record what you did as `other`.
+- **Producer's instructions:** if `brief.note` is set, follow it where it's about this edit, even over a house rule, and record what you did as `other`. If something in it can't be done (a take that doesn't exist), do the closest thing and flag it.
 
 ### 5. Fresh-graphics checklist, then write `<showDir>/edl.json`
 The format and rules are in `references/edl.md`; a complete example is in `references/example-edl.json`.

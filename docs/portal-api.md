@@ -45,7 +45,7 @@ The editor talks to two services:
     "roster": ["First Last"],                    // the class's full names (no staff), for name bars and for
                                                  // working out who's on air when it isn't the scheduled anchors
     "packages": [{ "title": "…", "nasPath": "Package Storage/…/x.mp4", "toss": "…" }],  // queue order; toss may be null
-    "note": null,                 // the producer's Redo note, or null
+    "note": null,                 // the producer's instructions (Start or Redo), or null
     "outputNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.mp4",
     "posterNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.poster.jpg"
   },
