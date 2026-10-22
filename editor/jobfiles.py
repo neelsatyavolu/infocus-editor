@@ -151,6 +151,51 @@ def edl_tosses(edl_path: Path, packages: list[dict[str, Any]]) -> list[str | Non
     return [said.get(p.get("localPath")) for p in packages]
 
 
+def _fps(value: Any) -> float:
+    try:
+        num, _, den = str(value).partition("/")
+        return float(num) / float(den or 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 0.0
+
+
+def edl_chapters(edl_path: Path, layout_path: Path, packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The finished show's chapters, `[{title, start}]` (seconds into the render), for the Portal's player and the
+    YouTube description. A segment's `chapter` (set by the skill) names a new chapter; otherwise intro and outro,
+    each announcement (its card title), each package and the anchors' open and sign-off get one, and anything else
+    continues the chapter before it."""
+    edl, layout = read_json(edl_path) or {}, read_json(layout_path) or {}
+    fps = _fps(layout.get("fps") or edl.get("fps"))
+    starts = {s.get("id"): s.get("rec_in") for s in layout.get("segments") or [] if isinstance(s, dict)}
+    segs = [s for s in edl.get("segments") or [] if isinstance(s, dict) and isinstance(starts.get(s.get("id")), int)]
+    if fps <= 0 or not segs:
+        return []
+    titles = {p.get("localPath"): p.get("title") for p in packages}
+    later_story = [any(x.get("card") or x.get("kind") in ("file", "placeholder") and "outro" not in str(x.get("id", "")).lower()
+                       for x in segs[i + 1:]) for i in range(len(segs))]
+    chapters: list[dict[str, Any]] = []
+    for i, seg in enumerate(segs):
+        name, kind = str(seg.get("id", "")).lower(), seg.get("kind")
+        title = str(seg.get("chapter") or "").strip()
+        if not title:
+            if kind == "file" and "intro" in name:
+                title = "Intro"
+            elif kind == "file" and "outro" in name:
+                title = "Outro"
+            elif kind in ("file", "placeholder"):
+                pkg = titles.get(seg.get("path"))
+                title = f"Package: {pkg}" if pkg else "Package"
+            elif isinstance(seg.get("card"), dict) and seg["card"].get("title"):
+                title = str(seg["card"]["title"]).replace("|", " ").strip()
+            elif not chapters or chapters[-1]["title"] == "Intro":
+                title = "Welcome"
+            elif not later_story[i]:
+                title = "Sign-off"
+        if title and (not chapters or chapters[-1]["title"] != title):
+            chapters.append({"title": title[:100], "start": round(starts[seg["id"]] / fps, 2)})
+    return chapters
+
+
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text())

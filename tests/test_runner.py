@@ -751,3 +751,29 @@ async def test_a_cancel_during_the_bundle_upload_cancels_instead_of_completing(t
     report = await run_job(deps, edit_claim(), cancel)
     assert report.status == "CANCELLED" and portal.completed is None
     assert portal.failed == ("Cancelled by a producer.", True)
+
+
+def test_chapters_follow_the_finished_show(tmp_path):
+    from editor.jobfiles import edl_chapters
+    pkg = str(tmp_path / "packages" / "01-pkg.mp4")
+    segs = [("intro", "file", {"path": "{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4"}), ("open", "source", {}),
+            ("karaoke", "source", {"card": {"title": "Karaoke|Club"}}), ("karaoke_b", "source", {"card": {"title": "Karaoke|Club"}}),
+            ("bdtw", "source", {"card": {"title": "Breaking Down Walls"}}), ("toss", "source", {}),
+            ("pkg", "file", {"path": pkg}), ("close", "source", {}), ("outro", "file", {"path": "x/InFocus Outro 2026.mp4"})]
+    write_json_atomic(tmp_path / "edl.json", {"fps": "60000/1001", "segments": [{"id": i, "kind": k, **x} for i, k, x in segs]})
+    frames = [0, 600, 1800, 2400, 3000, 4200, 4800, 15600, 18000]
+    write_json_atomic(tmp_path / "layout.json", {"fps": "60000/1001", "segments": [
+        {"id": i, "kind": k, "rec_in": f, "rec_out": f + 1} for (i, k, _), f in zip(segs, frames)]})
+    chapters = edl_chapters(tmp_path / "edl.json", tmp_path / "layout.json", [{"localPath": pkg, "title": "Field trip lawsuit"}])
+    assert [c["title"] for c in chapters] == [
+        "Intro", "Welcome", "Karaoke Club", "Breaking Down Walls", "Package: Field trip lawsuit", "Sign-off", "Outro"]
+    assert chapters[0]["start"] == 0 and chapters[2]["start"] == round(1800 / (60000 / 1001), 2)
+
+
+def test_a_chapter_named_by_the_skill_wins(tmp_path):
+    from editor.jobfiles import edl_chapters
+    write_json_atomic(tmp_path / "edl.json", {"fps": "60000/1001", "segments": [
+        {"id": "open", "kind": "source", "chapter": "Good morning, Paly"}, {"id": "sports", "kind": "source", "chapter": "Sports"}]})
+    write_json_atomic(tmp_path / "layout.json", {"fps": "60000/1001", "segments": [
+        {"id": "open", "rec_in": 0}, {"id": "sports", "rec_in": 1200}]})
+    assert [c["title"] for c in edl_chapters(tmp_path / "edl.json", tmp_path / "layout.json", [])] == ["Good morning, Paly", "Sports"]
