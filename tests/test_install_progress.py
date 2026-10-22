@@ -250,3 +250,24 @@ def test_bootstrap_keeps_an_existing_xcode_selection():
     install = text.index('softwareupdate --install "$label"')
     # Xcode (or any selected tools with git) counts as installed, and the switch only follows a fresh install.
     assert check < install < switch
+
+
+def test_a_stalled_speech_model_download_is_retried_and_resumed(sandbox):
+    (sandbox["home"] / ".cache" / "whisper-cpp" / "ggml-large-v3-turbo.bin").unlink()
+    tries = sandbox["home"] / "curl-tries"
+    # First try: 1000 bytes, then curl gives up on the stall (exit 28). Second try: resumes to the full size.
+    script(sandbox["fake"] / "curl", f'''
+        echo "curl $*" >> "{sandbox["log"]}"
+        case "$*" in *ggml-large-v3-turbo*) ;; *) exit 0 ;; esac
+        while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done
+        n=$(( $(cat "{tries}" 2>/dev/null || echo 0) + 1 )); echo "$n" > "{tries}"
+        if [ "$n" = 1 ]; then head -c 1000 /dev/zero > "$out"; exit 28; fi
+        python3 -c "import sys; open(sys.argv[1], 'ab').truncate({WHISPER_SIZE})" "$out"
+    ''')
+    script(sandbox["fake"] / "shasum", "cat >/dev/null; exit 0\n")
+    proc, lines = install(sandbox)
+    assert proc.returncode == 0, proc.stderr
+    assert ("model", "done") in steps(lines)
+    calls = [l for l in sandbox["log"].read_text().splitlines() if "ggml-large-v3-turbo" in l]
+    assert len(calls) == 2 and all("--speed-limit" in c and "--continue-at -" in c for c in calls)
+    assert "try 1 stopped" in proc.stderr

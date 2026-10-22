@@ -126,8 +126,30 @@ whisper_model() {
     return
   fi
   mkdir -p "$WHISPER_DIR"
-  curl -fL --retry 3 --continue-at - -o "$WHISPER_FILE.part" "$WHISPER_URL" \
-    || die "Couldn't download the speech model. Check the internet connection and try again."
+  # Hardened: curl had no time limits, so a stalled connection (one school network let the redirect through and
+  # then hung on the CDN) waited forever. Each try gives up when under 100 KB/s for 30 s (or no connection in
+  # 20 s), and the next one resumes the .part file. Progress goes to the window every 5 s: curl's own meter
+  # redraws one line, which the window never shows.
+  local try got pid note
+  for try in 1 2 3 4 5 6; do
+    got=$(stat -f %z "$WHISPER_FILE.part" 2>/dev/null || echo 0)
+    [ "$got" -ge "$WHISPER_SIZE" ] && break
+    curl -fsSL --connect-timeout 20 --speed-limit 102400 --speed-time 30 --continue-at - \
+      -o "$WHISPER_FILE.part" "$WHISPER_URL" &
+    pid=$!
+    note=""; [ "$try" -gt 1 ] && note=" (try $try)"
+    while kill -0 "$pid" 2>/dev/null; do
+      got=$(stat -f %z "$WHISPER_FILE.part" 2>/dev/null || echo 0)
+      step model running "Downloading the speech model: $((got / 1048576)) of $((WHISPER_SIZE / 1048576)) MB$note"
+      sleep 5
+    done
+    wait "$pid" && break
+    echo "speech model download try $try stopped (curl exit $?); retrying" >&2
+    sleep $((try * 5))
+  done
+  got=$(stat -f %z "$WHISPER_FILE.part" 2>/dev/null || echo 0)
+  [ "$got" -eq "$WHISPER_SIZE" ] \
+    || die "Couldn't download the speech model after 6 tries (got $((got / 1048576)) of $((WHISPER_SIZE / 1048576)) MB). Check the internet connection and run setup again; it picks up where it left off."
   echo "$WHISPER_SHA256  $WHISPER_FILE.part" | shasum -a 256 -c - >/dev/null \
     || { rm -f "$WHISPER_FILE.part"; die "The speech model download was damaged (checksum mismatch). Try again."; }
   mv "$WHISPER_FILE.part" "$WHISPER_FILE"
