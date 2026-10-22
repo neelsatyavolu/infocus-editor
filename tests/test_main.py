@@ -435,3 +435,16 @@ async def test_job_start_and_end_reach_the_global_log_with_status_and_duration(c
     messages = [r.getMessage() for r in caplog.records if r.name == "editor"]
     assert "job j1 started: edit v1 for 2026-10-21" in messages
     assert any(m.startswith("job j1 finished: REVIEW in ") and m.endswith(" s") for m in messages)
+
+
+async def test_an_unhealthy_mac_rechecks_its_health_every_minute_not_every_ten():
+    now = [0.0]
+    results = [Health(False, ("The MacBook is on battery; plug it in.",)), Health(True)]
+    w = Worker(portal=FakePortal(active=False), version="0.1.0", doctor=lambda: results.pop(0) if len(results) > 1 else results[0],
+               run_job=lambda c, e: None, settings=LoopSettings(doctor_s=600, unhealthy_doctor_s=60), clock=lambda: now[0])
+    assert not (await w.refresh_health()).ok
+    now[0] = 61
+    assert (await w.refresh_health()).ok                     # plugged in: clears within a minute
+    now[0] = 200
+    await w.refresh_health()
+    assert w._health_at == 61                                 # healthy again: back to every 10 minutes

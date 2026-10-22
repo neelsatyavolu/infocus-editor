@@ -29,6 +29,7 @@ class LoopSettings:
     unlinked_heartbeat_s: float = 300.0
     poll_s: float = 30.0
     doctor_s: float = 600.0
+    unhealthy_doctor_s: float = 60.0  # while a problem blocks jobs (e.g. just plugged in), check again soon
     housekeeping_s: float = 3600.0
     update_s: float = CHECK_EVERY_S
 
@@ -78,7 +79,8 @@ class Worker:
     # ---- health -----------------------------------------------------------
 
     async def refresh_health(self, force: bool = False) -> Health:
-        if force or self._clock() - self._health_at >= self._s.doctor_s:
+        every = self._s.doctor_s if self.health.ok else self._s.unhealthy_doctor_s
+        if force or self._clock() - self._health_at >= every:
             try:
                 self.health = await asyncio.to_thread(self._doctor)
             except Exception as e:  # noqa: BLE001
