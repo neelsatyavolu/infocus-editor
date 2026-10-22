@@ -106,6 +106,21 @@ def test_rule_6_fails_a_quiet_segment_and_a_loud_anchor(tmp_path):
     assert len(rows) == 2
 
 
+def test_rule_6_fails_anchor_segments_more_than_3_db_apart(tmp_path):
+    sr, fps = 48000, 60000 / 1001
+    rng = np.random.default_rng(3)
+    noise = np.clip(rng.standard_normal(3 * sr), -4, 4) / 4      # peaks at 0 dBFS before scaling
+    x = np.concatenate([noise * 10 ** (-6 / 20), noise * 10 ** (-10 / 20)])   # same peak shape, 4 dB quieter
+    sf.write(tmp_path / "show.wav", np.stack([x, x], 1).astype(np.float32), sr)
+    seg = round(3 * fps)
+    layout = {"segments": [{"id": "melody", "kind": "source", "rec_in": 0, "rec_out": seg},
+                           {"id": "sumedh", "kind": "source", "rec_in": seg, "rec_out": 2 * seg}]}
+    lufs = [r["lufs"] for r in verify_render.loudness_rows(str(tmp_path / "show.wav"), layout, {"fps": "60000/1001"})]
+    edl = {"fps": "60000/1001", "audio": {"peak_dbfs": -6, "dialogue_lufs": sum(lufs) / 2}}
+    fails, _ = verify_render.rule_audio(str(tmp_path / "show.wav"), layout, edl, levels={})
+    assert any("jumps" in f["detail"] and f["segment"] == "melody" for f in fails)
+
+
 def test_cli_exits_2_without_a_layout(tmp_path):
     (tmp_path / "edl.json").write_text(json.dumps({"show": "X", "fps": "60000/1001", "segments": []}))
     r = subprocess.run([sys.executable, str(SCRIPTS / "verify_render.py"), str(tmp_path)], capture_output=True, text=True)

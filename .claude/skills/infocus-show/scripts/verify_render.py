@@ -512,21 +512,32 @@ def rule_intro_outro(edl, analysis=None):
 
 # ---------- rules 6 and 7 ----------
 
+MAX_DIALOGUE_SPREAD_DB = 3.0
+
+
 def rule_audio(render, layout, edl, levels):
-    cfg = {"peak_dbfs": -6.0, "dialogue_lufs": -19.5, **edl.get("audio", {})}
+    cfg = {"peak_dbfs": -6.0, "dialogue_lufs": -16.0, **edl.get("audio", {})}
     rows = loudness_rows(render, layout, edl)
     failures = []
+    dialogue = [r for r in rows if r["kind"] == "source" and r["lufs"] is not None]
     for r in rows:
         if not r["ok"]:
             failures.append(fail(6, f"peak: true peak {r['peak']} dBFS, must be {cfg['peak_dbfs']:.1f} ±0.3",
                                  segment=r["segment"]))
         if r["kind"] == "source" and r["lufs"] is not None:
             lift = max(0.0, float(levels.get(r["segment"], {}).get("lift_db", 0.0)))
-            lo, hi = cfg["dialogue_lufs"] - 1, cfg["dialogue_lufs"] + 1 + lift
+            # The limiter can pull a very dynamic read up to ~2 dB under the target.
+            lo, hi = cfg["dialogue_lufs"] - 2, cfg["dialogue_lufs"] + 1 + lift
             if not lo <= r["lufs"] <= hi:
                 r["ok"] = False
                 failures.append(fail(6, f"loudness: {r['lufs']} LUFS, must be {lo:.1f} to {hi:.1f}",
                                      segment=r["segment"]))
+    if len(dialogue) > 1:
+        loud, quiet = max(dialogue, key=lambda r: r["lufs"]), min(dialogue, key=lambda r: r["lufs"])
+        if loud["lufs"] - quiet["lufs"] > MAX_DIALOGUE_SPREAD_DB:
+            failures.append(fail(6, f"loudness jumps {loud['lufs'] - quiet['lufs']:.1f} dB between anchor segments "
+                                    f"({quiet['segment']} {quiet['lufs']}, {loud['segment']} {loud['lufs']} LUFS); "
+                                    f"keep them within {MAX_DIALOGUE_SPREAD_DB:.0f} dB", segment=loud["segment"]))
     return failures, rows
 
 

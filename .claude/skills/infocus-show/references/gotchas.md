@@ -47,7 +47,7 @@
 - **Package music has inter-sample peaks.** With a plain limiter, dense music's true peak sat 1.6 dB over a −6 sample-peak ceiling. `master_audio.py` limits 4× oversampled and sets each segment's final gain on the 4× true peak; AAC still adds about 0.2 dB.
 - **Peak normalization alone spreads loudness about 9 dB,** because each clip has a few 10–120 ms plosives or laughs 4–9 dB over its typical peaks. That's why `master_audio.py` levels loudness first and limits after.
 - **Packages arrive already mixed, often clipping:** one peaked at +0.2 dBFS at −19 LUFS. Peak-normalizing it would leave it about 6 dB under the anchors, so use `"audio": "match"`.
-- **Low crest factor:** a throw or package can sit under −6 after the loudness trim. The final peak gain lifts it (up to +6 dB), so its loudness ends up a little over −19.5 LUFS; `verify_render.py` allows for exactly that lift.
+- **Low crest factor:** a throw or package can sit under −6 after the loudness trim. The final peak gain lifts it (up to +6 dB), so its loudness ends up a little over −16 LUFS; `verify_render.py` allows for exactly that lift.
 - **Package lyrics:** listen to (or transcribe) package music. One package had explicit lyrics, which is a school-broadcast issue; flag it.
 - **Limiter latency:** ffmpeg `alimiter` needs `latency=true`, or it shifts the audio 3 ms. WAVs are written one frame long, and `build_ffmpeg.py` cuts each to its segment's exact picture length.
 - **zsh:** it treats `$m:s` as a modifier, so write ffmpeg filter strings in Python, not in shell loops.

@@ -24,13 +24,16 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from editor.backends.base import EFFORT, AgentOutcome, BackendStatus, OnEvent, classify, failure
+from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, classify, failure
 from editor.backends.guard import bash_denied, write_denied
 from editor.config import Config
 from editor.joblog import Transcript, clip
 from editor.prompts import UNATTENDED, instruction
 
-MODEL = "claude-opus-5-5"
+# The producer's choice for quality per cost: Sonnet 5.5 at high effort. Most of an edit's tokens are cache reads,
+# which cost the same on Sonnet and Opus; Sonnet halves the rest.
+MODEL = "claude-sonnet-5-5"
+EFFORT = "high"
 TOKEN_ITEM = "claude_oauth_token"
 TOKEN_RE = re.compile(r"^sk-ant-oat01-[A-Za-z0-9_-]{40,}$")
 TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep")

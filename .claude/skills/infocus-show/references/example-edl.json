@@ -5,7 +5,7 @@
   "source": "/path/to/job/source.mov",
   "audio": {
     "peak_dbfs": -6,
-    "dialogue_lufs": -19.5,
+    "dialogue_lufs": -16,
     "channels": [
       0,
       1

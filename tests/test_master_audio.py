@@ -65,9 +65,9 @@ def test_anchor_and_music_segments_land_at_minus_6_true_peak(mastered, seg):
     assert levels[seg]["reached"] is True
 
 
-def test_quiet_throw_is_raised_to_minus_6_dbfs_true_peak(mastered):
-    d, levels, _ = mastered
-    assert levels["throw"]["lift_db"] > 0.5                       # it really was under the ceiling
+def test_quiet_throw_reaches_minus_6_and_matches_the_open(mastered):
+    d, levels, _ = mastered                                       # recorded 20 dB under the open
+    assert abs(levels["throw"]["lufs"] - levels["open"]["lufs"]) <= 3.0
     assert true_peak(d / "Audio/throw.wav") == pytest.approx(-6.0, abs=0.15)
     assert levels["throw"]["reached"] is True
 

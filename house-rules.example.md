@@ -5,7 +5,7 @@ Decisions producers have already made. The unattended editor reads this file bef
 Producers edit the live rules in the Portal (Automatic editing → Editor settings → House rules), and "Remember this" fixes are added there. This file is the editor's default until a producer saves their own.
 
 1. **Fresh graphics, every show.** Replace every burned-in graphic with a fresh 2026-package render: TV cards, name bars and dual thirds, the Follow card, and any logo or graphic fired by mistake. Cut the switcher's intro, logo card and end card, and use `InFocus Intro 2026.mp4` and `InFocus Outro 2026.mp4`.
-2. **Every segment peaks at −6 dBFS.** That includes anchors, throws, packages, intro and outro. Anchor dialogue is levelled to about −19.5 LUFS first.
+2. **Every segment peaks at −6 dBFS.** That includes anchors, throws, packages, intro and outro. Anchor dialogue is levelled to about −16 LUFS first, every anchor segment within 3 dB of the others.
 3. **Names use the spelling the Portal gives** (`brief.anchors`), even when the filmed graphic used a nickname or a short form.
 4. **Fix obvious typos on filmed cards** (a missing letter, a doubled word). Keep every other word exactly as filmed.
 5. **Takes:** keep the last complete, clean read of each segment. Keep live announcement runs as they aired, including the switcher's cuts. When two reads are equally good, use the later one.

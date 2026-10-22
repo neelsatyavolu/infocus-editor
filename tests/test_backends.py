@@ -167,10 +167,10 @@ def test_claude_options_use_the_oauth_token_and_no_mcp(tmp_path):
     opts = build_options(cfg, tmp_path / "job", TOKEN, resume="s0")
     assert opts.env["CLAUDE_CODE_OAUTH_TOKEN"] == TOKEN and "ANTHROPIC_API_KEY" not in opts.env
     assert opts.env["CLAUDE_CONFIG_DIR"] == str(cfg.claude_config_dir)
-    assert opts.mcp_servers == {} and opts.model == MODEL == "claude-opus-5-5"
+    assert opts.mcp_servers == {} and opts.model == MODEL == "claude-sonnet-5-5"
     assert opts.tools == ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] and opts.setting_sources == ["project"]
     assert opts.max_turns == 300 and opts.max_budget_usd is None and opts.resume == "s0"
-    assert opts.max_buffer_size == 64 * 1024 * 1024 and opts.effort == "medium"
+    assert opts.max_buffer_size == 64 * 1024 * 1024 and opts.effort == "high"
 
 
 async def test_claude_run_starts_with_the_skill_instruction(tmp_path):

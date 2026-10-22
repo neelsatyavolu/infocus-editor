@@ -2,8 +2,9 @@
 
 build_ffmpeg.py puts these finished WAVs on the program audio, cut to picture. Per program segment, written to <show_dir>/Audio/<id>.wav:
   - anchor segments (source): dynamic normalization (evens out quiet vs loud mics, even within a two-shot,
-    without pumping room noise), a trim so every segment has the same integrated loudness, then a limiter
-    at the peak ceiling so plosives/laughs never pass it
+    without pumping room noise), a gentle 3:1 voice compressor (mics differ in crest factor: one anchor's peaks
+    sat 8 dB over her average, the other's 14 dB, so a -6 dBFS peak alone left them 5 dB apart), a trim so every
+    segment has the same integrated loudness, then a limiter at the peak ceiling so plosives/laughs never pass it
   - packages (file segments with "audio": "match"): matched to the anchors' loudness, then the same limiter
   - intro / outro music (other file segments): one static gain
 Then every segment, whatever its kind, gets one last static gain so its true peak (4x oversampled) sits exactly at
@@ -13,7 +14,8 @@ Digital near-silence (under -60 LUFS) isn't loudness-trimmed at all.
 Each file is exactly as long as the segment's picture on the timeline.
 
     uv run --with numpy python master_audio.py <show_dir>
-edl.json "audio": {"peak_dbfs": -6, "dialogue_lufs": -19.5, "channels": [0, 1]}  (these are the defaults)
+edl.json "audio": {"peak_dbfs": -6, "dialogue_lufs": -16, "channels": [0, 1]}  (these are the defaults; -16 LUFS puts
+compressed dialogue's peaks right at the ceiling, so the final peak gain is ~0 and segments stay within ~1.5 dB)
 Anchor audio comes from each take's recording: its M camera file if it has one, else its program file, at that
 file's offset (edl "recordings").
 """
@@ -29,7 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import expand, fps_value, load_edl, probe, segment_audio  # noqa: E402
 
 SR = 48000
-LEVEL = "dynaudnorm=f=200:g=11:p=0.5:m=10:s=0"            # ~2 s smoothing: follows speakers, not syllables
+LEVEL = ("dynaudnorm=f=200:g=11:p=0.5:m=10:s=0,"           # ~2 s smoothing: follows speakers, not syllables
+         "acompressor=threshold=-24dB:ratio=3:attack=5:release=150:knee=6")   # evens out the mics' crest factors
 
 
 def limiter(peak_dbfs):
@@ -86,7 +89,7 @@ def main():
     show_dir = sys.argv[1]
     edl = load_edl(show_dir)
     fps = fps_value(edl["fps"])
-    cfg = {"peak_dbfs": -6.0, "dialogue_lufs": -19.5, "channels": [0, 1], **edl.get("audio", {})}
+    cfg = {"peak_dbfs": -6.0, "dialogue_lufs": -16.0, "channels": [0, 1], **edl.get("audio", {})}
 
     def pan_for(path):
         have = next(st["channels"] for st in probe(path)["streams"] if st["codec_type"] == "audio")
