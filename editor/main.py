@@ -41,6 +41,7 @@ def build_worker():
     from editor.portal import PortalClient
     from editor.runner import RunnerDeps, run_job
     from editor.service import reload_if_changed
+    from editor.shell import RemoteShell
     from editor.updater import Updater
 
     cfg = Config.load()
@@ -61,6 +62,7 @@ def build_worker():
                   commands=CommandRunner(cfg.repo_root, cfg.data_dir, work_root=cfg.work_root),
                   machine={"name": device_name(), "kind": cfg.machine_kind},
                   before_exit=lambda: reload_if_changed(cfg.data_dir),
+                  shell=RemoteShell(cfg.machine_kind, lambda: keychain.get(TOKEN_ITEM)),
                   housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days))
 
 

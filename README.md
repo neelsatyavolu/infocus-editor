@@ -147,6 +147,15 @@ There is no blanket admin and no general passwordless `sudo`. The editing agents
 
 The helper can't update itself: a release that changes it needs an admin to run `install.sh` again. Until then the doctor reports "an admin needs to approve once", and the update is rolled back.
 
+### Remote commands (super admin only)
+
+The super admin can run a shell command on a **dedicated** editing Mac without the Portal UI: `scripts/editor-shell.mjs` in the Portal repo writes a signed command to the database, the Mac picks it up with its next heartbeat and the output comes back the same way. `editor/shell.py` runs it only if:
+- the machine is dedicated (a personal computer refuses every one),
+- it's signed with the Ed25519 key whose public half is `editor/admin_shell.pub` (the private key never leaves the super admin's computer),
+- the signature names this command and this machine (the sha256 of its device token), and it's under 10 minutes old.
+
+It runs as the editor's own account with a time limit (no root; root stays limited to the helper's subcommands). Anyone running their own fork replaces `admin_shell.pub` with their own key, or deletes it to turn remote commands off.
+
 ### Updating remotely (no admin)
 
 The production copy (`~/InFocusEditor/app`) updates itself, the whole checkout including the installer scripts and the skill. It checks at start-up, then every 15 minutes, between jobs only.

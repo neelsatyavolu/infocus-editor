@@ -67,10 +67,10 @@ class UploadTargets:
 @dataclass(frozen=True)
 class Command:
     id: str
-    kind: str  # doctor | update | restart | repair | logs
+    kind: str  # doctor | update | restart | repair | logs | always-on | normal-power | shell:<signed payload>
 
 
-COMMAND_KINDS = ("doctor", "update", "restart", "repair", "logs")
+COMMAND_KINDS = ("doctor", "update", "restart", "repair", "logs", "always-on", "normal-power")
 
 
 @dataclass(frozen=True)
@@ -184,7 +184,8 @@ class PortalClient:
             credentials=tuple(c for c in data.get("credentials") or [] if isinstance(c, dict)),
             agent_order=tuple(str(a) for a in order) if isinstance(order, list) and order else None,
             commands=tuple(Command(str(c["id"]), str(c["kind"])) for c in data.get("commands") or []
-                           if isinstance(c, dict) and c.get("id") and c.get("kind") in COMMAND_KINDS),
+                           if isinstance(c, dict) and c.get("id")
+                           and (c.get("kind") in COMMAND_KINDS or str(c.get("kind")).startswith("shell:"))),
             active=data.get("active") is not False,
         )
 

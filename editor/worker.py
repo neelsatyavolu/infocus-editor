@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 
 from editor.commands import IMMEDIATE, CommandAck, health_report
 from editor.portal import AuthError, Claim, Command, Health
+from editor.shell import SHELL_PREFIX
 from editor.updater import CHECK_EVERY_S, RestartForUpdate, UpdateResult
 
 log = logging.getLogger("editor")
@@ -41,6 +42,7 @@ class Worker:
                  set_agent_order: Callable[[tuple[str, ...]], None] = lambda order: None,
                  commands: Any = None, machine: dict[str, str] | None = None,
                  before_exit: Callable[[], None] = lambda: None,
+                 shell: Callable[[str, str], Awaitable[tuple[bool, str]]] | None = None,
                  settings: LoopSettings = LoopSettings(), clock: Callable[[], float] = time.monotonic):
         self._portal = portal
         self._version = version
@@ -54,6 +56,8 @@ class Worker:
         self._commands = commands
         self._machine = machine
         self._before_exit = before_exit
+        self._shell = shell
+        self._shell_tasks: set[asyncio.Task] = set()
         self._s = settings
         self._clock = clock
         self.health = Health(False, ("Starting up",))
@@ -135,7 +139,9 @@ class Worker:
             if command.id in self._seen_commands:
                 continue
             self._seen_commands.add(command.id)
-            if command.kind in IMMEDIATE:
+            if command.kind.startswith(SHELL_PREFIX):
+                self._start_shell(command)
+            elif command.kind in IMMEDIATE:
                 await self._run_immediate(command)
             else:
                 self._queued.append(command)
@@ -162,6 +168,23 @@ class Worker:
     def _ack(self, command: Command, ok: bool, output: str = "") -> None:
         log.info("command %s (%s): %s", command.id, command.kind, "ok" if ok else "failed")
         self._command_acks.append(CommandAck(command.id, ok, output).as_json())
+
+    def _start_shell(self, command: Command) -> None:
+        """A signed admin command (editor/shell.py), in the background so heartbeats and jobs carry on."""
+        if self._shell is None:
+            self._ack(command, False, "This editor can't run that command.")
+            return
+
+        async def go() -> None:
+            try:
+                ok, output = await self._shell(command.id, command.kind)
+            except Exception as e:  # noqa: BLE001 - report it, never crash the loop
+                ok, output = False, f"The command crashed: {e.__class__.__name__}: {e}"
+            self._ack(command, ok, output)
+
+        task = asyncio.create_task(go())
+        self._shell_tasks.add(task)
+        task.add_done_callback(self._shell_tasks.discard)
 
     async def _run_immediate(self, command: Command) -> None:
         if command.kind == "doctor":
