@@ -1,6 +1,0 @@
-# Installed into the editor user's own Homebrew (/opt/homebrew) by user-setup.sh (step "tools").
-brew "git"
-brew "uv"
-brew "ffmpeg"
-brew "node"
-brew "whisper-cpp"

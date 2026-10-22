@@ -6,6 +6,8 @@
 # infocus-root helper and a sudoers rule for that one helper only, and writes
 # a root-owned marker. Re-running is safe. --personal (someone's own computer, possibly an
 # admin account) keeps the normal sleep settings and reuses only a Homebrew that account owns.
+# Progress for the setup app goes to $ROOT_DIR/bootstrap.progress (root-owned, world-readable),
+# which install.sh tails while this runs inside the admin dialog.
 set -euo pipefail
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
@@ -21,25 +23,34 @@ die() { echo "bootstrap: $*" >&2; exit 1; }
 log() { echo "bootstrap: $*"; }
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
-[ $# -eq 2 ] || [ $# -eq 3 ] || die "usage: bootstrap-root.sh <user> <repo dir> [--personal]"
+[ $# -ge 2 ] || die "usage: bootstrap-root.sh <user> <repo dir> [--personal]"
 USER_NAME="$1"
 REPO_DIR="$2"
+shift 2
 PERSONAL=0
-if [ $# -eq 3 ]; then
-  [ "$3" = "--personal" ] || die "unknown option $3"
-  PERSONAL=1
-fi
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --personal) PERSONAL=1; shift ;;
+    *) die "unknown option $1" ;;
+  esac
+done
+PROGRESS_FILE="$ROOT_DIR/bootstrap.progress"
+progress() { printf '@@step %s\n' "$*" >> "$PROGRESS_FILE"; }
 [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_.-]{0,31}$ ]] || die "invalid user name"
 USER_UID=$(id -u "$USER_NAME" 2>/dev/null) || die "no such user: $USER_NAME"
 [ "$USER_UID" -ge 501 ] || die "refusing a system account"
 [ -f "$REPO_DIR/install/infocus-root" ] || die "no install/infocus-root in $REPO_DIR"
 
 install_clt() {
-  if xcode-select -p >/dev/null 2>&1 && [ -x /Library/Developer/CommandLineTools/usr/bin/git ]; then
-    log "Command Line Tools present"
+  local dev
+  # Xcode or the standalone tools both provide git and swiftc; never replace a working selection.
+  if dev=$(xcode-select -p 2>/dev/null) && [ -x "$dev/usr/bin/git" ]; then
+    log "developer tools present ($dev)"
+    progress clt skipped "Already installed"
     return
   fi
   log "installing the Command Line Tools (this takes a few minutes)"
+  progress clt running "Installing Apple command-line tools (a few minutes)"
   local flag=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
   touch "$flag"
   local label
@@ -48,13 +59,16 @@ install_clt() {
   softwareupdate --install "$label" --verbose
   rm -f "$flag"
   xcode-select --switch /Library/Developer/CommandLineTools
+  progress clt "done" "Installed"
 }
 
 install_homebrew() {
   if [ -x "$BREW_PREFIX/bin/brew" ] && [ "$(stat -f %Su "$BREW_PREFIX")" = "$USER_NAME" ]; then
     log "Homebrew present and owned by $USER_NAME"
+    progress homebrew skipped "Already installed"
     return
   fi
+  progress homebrew running "Setting up Homebrew"
   if [ -e "$BREW_PREFIX" ] && [ "$PERSONAL" = 1 ] && [ "$(stat -f %Su "$BREW_PREFIX")" != "$USER_NAME" ]; then
     die "Homebrew on this Mac belongs to another account ($(stat -f %Su "$BREW_PREFIX")). Run setup from that account, or ask an admin."
   fi
@@ -66,6 +80,7 @@ install_homebrew() {
     sudo -u "$USER_NAME" -H /usr/bin/git clone --depth=1 https://github.com/Homebrew/brew "$BREW_PREFIX"
   fi
   sudo -u "$USER_NAME" -H "$BREW_PREFIX/bin/brew" update --force --quiet || log "brew update failed; user-setup will retry"
+  progress homebrew "done" "Installed"
 }
 
 install_helper() {
@@ -99,6 +114,12 @@ write_marker() {
   mv "$MARKER.tmp" "$MARKER"
 }
 
+mkdir -p "$ROOT_DIR"
+chown root:wheel "$ROOT_DIR"
+chmod 755 "$ROOT_DIR"
+rm -f "$PROGRESS_FILE"
+install -o root -g wheel -m 644 /dev/null "$PROGRESS_FILE"
+progress admin "done" "Approved"
 install_clt
 install_homebrew
 install_helper

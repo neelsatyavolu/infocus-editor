@@ -22,6 +22,21 @@ struct AppConfig {
 
     var appCheckout: URL { dataDir.appendingPathComponent("app") }
 
+    /// An admin account is almost always someone's own computer; the dedicated editing Mac uses a
+    /// standard account. Used to preselect "personal" and to warn before "dedicated" changes power settings.
+    static var currentUserIsAdmin: Bool {
+        let id = Process()
+        id.executableURL = URL(fileURLWithPath: "/usr/bin/id")
+        id.arguments = ["-Gn"]
+        let out = Pipe()
+        id.standardOutput = out
+        id.standardError = FileHandle.nullDevice
+        guard (try? id.run()) != nil else { return false }
+        id.waitUntilExit()
+        let groups = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return groups.split(separator: " ").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.contains("admin")
+    }
+
     var isInstalled: Bool {
         let fm = FileManager.default
         return fm.fileExists(atPath: appCheckout.appendingPathComponent(".git").path)
@@ -59,8 +74,9 @@ final class SetupController: ObservableObject {
     @Published private(set) var state: SetupState
     @Published private(set) var installedVersion: String?
     @Published var showDetails = false
-    /// Welcome-screen answer to "What is this computer?"
-    @Published var personal = false
+    /// Welcome-screen answer to "What is this computer?" (personal by default on an admin account).
+    @Published var personal = AppConfig.currentUserIsAdmin
+    let isAdminAccount = AppConfig.currentUserIsAdmin
 
     let config: AppConfig
     private var process: Process?

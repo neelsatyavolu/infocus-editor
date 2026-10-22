@@ -42,6 +42,7 @@ if [ -d "$APP_DIR/.git" ] && command -v git >/dev/null 2>&1; then
   HELPER_SRC="$APP_DIR/install/infocus-root"
 fi
 
+ROOT_PROGRESS_FILE="$ROOT_DIR/bootstrap.progress"
 # 1. The admin step, once (or again when the root helper changed).
 step admin running "Waiting for an admin to approve"
 if [ "$PERSONAL" = 1 ]; then
@@ -51,14 +52,27 @@ BOOTSTRAP_ARGS=("$(id -un)" "$(dirname "$(dirname "$HELPER_SRC")")")
 if [ "$PERSONAL" = 1 ]; then
   BOOTSTRAP_ARGS+=(--personal)
 fi
-had_clt=0; xcode-select -p >/dev/null 2>&1 && had_clt=1
+had_clt=0; dev_dir=$(xcode-select -p 2>/dev/null) && [ -x "$dev_dir/usr/bin/git" ] && had_clt=1
 had_brew=0; [ -x "$BREW" ] && had_brew=1
 if root_step_ok "$HELPER_SRC"; then
   step admin skipped "Already approved"
 else
   say "An admin needs to approve a one-time setup step (a macOS password dialog will appear)."
-  run_as_admin /bin/bash "$SRC_DIR/install/bootstrap-root.sh" "${BOOTSTRAP_ARGS[@]}" \
-    || die "The admin step didn't finish (the password dialog was cancelled or failed). Try again."
+  # The admin step runs inside the dialog's shell and reports its own steps (clt, homebrew)
+  # through a root-owned progress file; relay it to the setup app while it runs.
+  TAIL_PID=""
+  if [ "$PROGRESS" = 1 ]; then
+    tail -n 0 -F "$ROOT_PROGRESS_FILE" 2>/dev/null &
+    TAIL_PID=$!
+  fi
+  admin_ok=1
+  run_as_admin /bin/bash "$SRC_DIR/install/bootstrap-root.sh" "${BOOTSTRAP_ARGS[@]}" || admin_ok=0
+  if [ -n "$TAIL_PID" ]; then
+    sleep 1
+    kill "$TAIL_PID" 2>/dev/null || true
+    wait "$TAIL_PID" 2>/dev/null || true
+  fi
+  [ "$admin_ok" = 1 ] || die "The admin step didn't finish (the password dialog was cancelled or failed). Try again."
   root_step_ok "$HELPER_SRC" || die "The admin step ran but the root helper check still fails. Try again."
   step admin "done" "Approved"
 fi
@@ -67,7 +81,7 @@ if [ "$had_brew" = 1 ]; then step homebrew skipped "Already installed"; else ste
 [ -x "$BREW" ] || die "Homebrew isn't installed for this user; run setup again."
 
 # 2. The production checkout.
-step app running "Getting the editor program"
+say "Getting the editor program"
 mkdir -p "$DATA_DIR"
 if [ ! -d "$APP_DIR/.git" ]; then
   clone_app "$REPO_URL" "$APP_DIR" || die "Couldn't get the editor program from $REPO_URL."

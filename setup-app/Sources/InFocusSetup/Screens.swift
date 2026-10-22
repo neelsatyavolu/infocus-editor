@@ -66,7 +66,7 @@ struct WelcomeScreen: View {
                 .font(Theme.font(15))
                 .foregroundColor(Theme.secondary)
                 .lineSpacing(4)
-            ComputerKindPicker(personal: $controller.personal)
+            ComputerKindPicker(personal: $controller.personal, isAdminAccount: controller.isAdminAccount)
             Note(icon: "person.badge.key", text: "An admin will need to type their name and password once, in the standard macOS dialog. Nothing after that needs an admin.")
             Note(icon: "link", text: "At the end you'll get a short code to approve in the Portal.")
             Button("Set up") { controller.setUp() }
@@ -353,6 +353,7 @@ struct Note: View {
 /// "What is this computer?": the dedicated editing Mac, or someone's own computer for now.
 struct ComputerKindPicker: View {
     @Binding var personal: Bool
+    var isAdminAccount = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -361,6 +362,17 @@ struct ComputerKindPicker: View {
                    detail: "Stays plugged in and never sleeps on power. Recommended.", selected: !personal) { personal = false }
             choice(title: "My own computer, for now (personal)",
                    detail: "Keeps your sleep settings and reuses tools you already have.", selected: personal) { personal = true }
+            if !personal && isAdminAccount {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle").foregroundColor(Theme.amber)
+                    Text("This is an admin account, which usually means someone's own computer. The dedicated choice turns off sleep while plugged in and sets up tools for an editing-only account. Choose it only on the team's editing Mac.")
+                        .font(Theme.font(13))
+                        .foregroundColor(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.amber.opacity(0.12)))
+            }
             if personal {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.shield").foregroundColor(Theme.amber)

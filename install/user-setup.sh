@@ -73,7 +73,8 @@ set_config() {  # set_config <key> <value>: replace or add a `key = "..."` line
   mv "$tmp" "$DATA_DIR/config.toml"
 }
 
-# On a personal computer, only what isn't there yet (judged by the command each formula provides).
+# Only what isn't there yet, judged by the command each formula provides. A tool installed some
+# other way (e.g. uv's own installer into /opt/homebrew/bin) is used as is, never fought over.
 FORMULA_COMMANDS="git:git uv:uv ffmpeg:ffmpeg node:node whisper-cpp:whisper-cli"
 
 missing_formulae() {
@@ -85,20 +86,15 @@ missing_formulae() {
 
 tools() {
   step tools running "Installing ffmpeg, node, whisper and uv"
-  if [ "$PERSONAL" = 1 ]; then
-    local missing
-    missing=$(missing_formulae)
-    if [ -z "$missing" ]; then
-      step tools skipped "Using the tools already installed"
-      return
-    fi
-    # shellcheck disable=SC2086 # one formula per word
-    "$BREW" install $missing || die "Homebrew couldn't install: $missing"
-  else
-    "$BREW" bundle --no-upgrade --file "$REPO/install/Brewfile" \
-      || die "Homebrew couldn't install the video tools."
+  local missing
+  missing=$(missing_formulae)
+  if [ -z "$missing" ]; then
+    step tools skipped "Using the tools already installed"
+    return
   fi
-  step tools "done" "Video tools ready"
+  # shellcheck disable=SC2086 # one formula per word
+  "$BREW" install $missing || die "Homebrew couldn't install: ${missing% }. See Show details."
+  step tools "done" "Installed ${missing% }"
 }
 
 ai_tools() {

@@ -53,7 +53,7 @@ public struct SetupState: Equatable, Sendable {
         case .step(let id, let state, let message):
             let next = with(steps: steps.map { $0.id == id ? Step(id: id, state: state, message: message) : $0 })
             if state == .failed {
-                return next.with(phase: .failed(message.isEmpty ? "\(id.title) didn't finish." : message))
+                return next.stoppingSpinners().with(phase: .failed(message.isEmpty ? "\(id.title) didn't finish." : message))
             }
             if case .linking = phase, id != .link { return next.with(phase: .running) }
             return next
@@ -65,7 +65,7 @@ public struct SetupState: Equatable, Sendable {
         case .done:
             return with(phase: .finished)
         case .error(let message):
-            return with(phase: .failed(message))
+            return stoppingSpinners().with(phase: .failed(message))
         }
     }
 
@@ -78,7 +78,7 @@ public struct SetupState: Equatable, Sendable {
         case .failed:
             return self
         default:
-            return with(phase: .failed(status == 0
+            return stoppingSpinners().with(phase: .failed(status == 0
                 ? "The installer ended without finishing. Try again."
                 : "The installer stopped with an error (code \(status))."))
         }
@@ -91,6 +91,11 @@ public struct SetupState: Equatable, Sendable {
     }
 
     // MARK: - helpers
+
+    /// After a failure nothing is still running: a step left "running" goes back to not started.
+    private func stoppingSpinners() -> SetupState {
+        with(steps: steps.map { $0.state == .running ? Step(id: $0.id, state: .pending, message: "") : $0 })
+    }
 
     private func mark(_ id: StepID, _ state: StepState, _ message: String) -> [Step] {
         steps.map { $0.id == id ? Step(id: id, state: state, message: message) : $0 }

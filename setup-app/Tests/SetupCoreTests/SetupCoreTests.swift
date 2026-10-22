@@ -118,4 +118,18 @@ final class SetupStateTests: XCTestCase {
         let state = run(["@@link ABCD-EFGH https://portal.example.org/x", "@@step service running"])
         XCTAssertEqual(state.phase, .running)
     }
+
+    func testFailureStopsEverySpinner() {
+        let state = run(["@@step app running Setting up the editor program",
+                         "@@step tools running Installing",
+                         "@@step tools failed Homebrew couldn't install: uv"])
+        XCTAssertFalse(state.steps.contains { $0.state == .running })
+        XCTAssertEqual(state.steps.first { $0.id == .tools }?.state, .failed)
+    }
+
+    func testErrorLineStopsEverySpinner() {
+        let state = run(["@@step app running Setting up", "@@error Something broke"])
+        XCTAssertFalse(state.steps.contains { $0.state == .running })
+        XCTAssertEqual(state.phase, .failed("Something broke"))
+    }
 }

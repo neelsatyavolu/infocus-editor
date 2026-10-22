@@ -60,6 +60,11 @@ def sandbox(tmp_path):
         echo "osascript $*" >> "{log}"
         [ "${{FAKE_ADMIN_CANCEL:-0}}" = 1 ] && {{ echo "User canceled." >&2; exit 1; }}
         mkdir -p "$INFOCUS_ROOT_DIR/bin"
+        if [ "${{FAKE_ROOT_PROGRESS:-0}}" = 1 ]; then
+          printf '@@step admin done Approved\n@@step clt running Installing Apple command-line tools\n@@step clt done Installed\n' \
+            >> "$INFOCUS_ROOT_DIR/bootstrap.progress"
+          sleep 2
+        fi
         cp "{app}/install/infocus-root" "$INFOCUS_ROOT_DIR/bin/infocus-root"
         echo "helper_version=1" > "$INFOCUS_ROOT_DIR/bootstrap.done"
         touch "$INFOCUS_SUDOERS"
@@ -114,7 +119,6 @@ def test_dedicated_install_reports_every_step_and_ends_with_done(sandbox):
     assert lines[-1] == "@@done"
     assert steps(lines) == [
         ("admin", "running"), ("admin", "done"), ("clt", "skipped"), ("homebrew", "skipped"),
-        ("app", "running"),
         ("tools", "running"), ("tools", "done"),
         ("ai", "running"), ("ai", "done"),
         ("model", "running"), ("model", "skipped"),
@@ -131,15 +135,18 @@ def test_dedicated_install_reports_every_step_and_ends_with_done(sandbox):
     plist = (sandbox["home"] / "Library" / "LaunchAgents" / "com.infocus.editor.plist").read_text()
     assert "/usr/bin/caffeinate" in plist and "__" not in plist
     calls = sandbox["log"].read_text()
-    assert "brew bundle --no-upgrade --file" in calls and "launchctl bootstrap" in calls
+    assert "launchctl bootstrap" in calls
+    # uv is already on PATH (installed some other way): Homebrew must not try to install it again.
+    brew_installs = [line for line in calls.splitlines() if line.startswith("brew install")]
+    assert brew_installs and all(" uv" not in line for line in brew_installs)
     assert "--personal" not in calls
 
 
 def test_a_failing_step_ends_with_error_and_a_nonzero_exit(sandbox):
     proc, lines = install(sandbox, env={"FAKE_BREW_FAIL": "1"})
     assert proc.returncode != 0
-    assert lines[-2] == "@@step tools failed Homebrew couldn't install the video tools."
-    assert lines[-1] == "@@error Homebrew couldn't install the video tools."
+    assert lines[-2] == "@@step tools failed Homebrew couldn't install: ffmpeg whisper-cpp. See Show details."
+    assert lines[-1] == "@@error Homebrew couldn't install: ffmpeg whisper-cpp. See Show details."
     assert "@@done" not in lines
 
 
@@ -227,3 +234,19 @@ def test_plist_relaunches_promptly():
     assert data["ThrottleInterval"] <= 15  # an update right after start waits at most this long
     assert data["ProgramArguments"][:2] == ["/usr/bin/caffeinate", "-dimsu"]
     assert data["EnvironmentVariables"]["INFOCUS_EDITOR_HOME"] == "/d"
+
+
+def test_admin_step_progress_reaches_the_app_while_the_dialog_runs(sandbox):
+    proc, lines = install(sandbox, env={"FAKE_ROOT_PROGRESS": "1"})
+    assert proc.returncode == 0, proc.stderr
+    got = steps(lines)
+    assert got.index(("admin", "running")) < got.index(("clt", "running")) < got.index(("clt", "done"))
+
+
+def test_bootstrap_keeps_an_existing_xcode_selection():
+    text = (REPO_ROOT / "install" / "bootstrap-root.sh").read_text()
+    check = text.index('dev=$(xcode-select -p 2>/dev/null) && [ -x "$dev/usr/bin/git" ]')
+    switch = text.index("xcode-select --switch")
+    install = text.index('softwareupdate --install "$label"')
+    # Xcode (or any selected tools with git) counts as installed, and the switch only follows a fresh install.
+    assert check < install < switch
