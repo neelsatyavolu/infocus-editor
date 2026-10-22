@@ -77,7 +77,7 @@ The editor talks to two services:
 
 - `outputNasPath` must equal the claim's `brief.outputNasPath`, or the Portal returns 409.
 - `decisions`: `[{ kind: string≤40, detail: string≤300, flagged: boolean }]`, at most 50.
-- `checks`: the `checks` object from `result.json` (see `job-contract.md`). The worker adds `cards`: `[{ title, points, script }]` from `edl.json`, where `script` is the announcement text the card was made from, or null.
+- `checks`: the `checks` object from `result.json` (see `job-contract.md`). The worker adds `cards`: `[{ title, points, script }]` from `edl.json`, where `script` is the announcement text the card was made from, or null, and `tosses`: what the anchors said at each package's throw, in brief package order (null where unknown); the Portal's YouTube description uses it when a package has no written toss.
 - `costUsd ≥ 0` is the cost of this run only. The Portal keeps the running total.
 - `reply` (≤1000) is required for `kind: "fix"`.
 

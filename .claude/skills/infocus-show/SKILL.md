@@ -136,7 +136,7 @@ Apply these rules (plus the house rules) and record each as a decision:
   - **Write it like the past cards:** copy the style of `brief.pastCards` (and `references/past-cards.md` when there are few): a short title naming the club or event (2–5 words), then 2–4 points of 2–7 words each. Points are fragments, not sentences: when, where, then the one thing to know or do. Leave out anything the card doesn't need (who's organizing, background, "come have fun").
   - Record each as `card_written` (not flagged) with the card's text.
 - **Card vs script:** compare each filmed card with `brief.announcements`. If they differ beyond a typo, keep the filmed text and flag `card_mismatch`.
-- **Packages:** use `brief.packages`, in order, as `file` segments at each throw (`"path": <localPath>`, `"audio": "match"`). If the anchors throw to more packages than the brief has, use a `placeholder` segment and flag a `package` decision. Never pull in a file from anywhere else.
+- **Packages:** use `brief.packages`, in order, as `file` segments at each throw (`"path": <localPath>`, `"audio": "match"`). On each, set `"toss_said"` to what the anchor says in the throw you kept, as clean sentences (fix whisper's spellings of names from `brief.roster` and the package's `toss`); the Portal uses it for the YouTube description when the package has no written toss. If the anchors throw to more packages than the brief has, use a `placeholder` segment and flag a `package` decision. Never pull in a file from anywhere else.
 - **Package music:** transcribe or listen to it. Explicit lyrics get a flagged `lyrics` decision.
 - **Producer's note:** if `brief.note` is set, follow it where it's about this edit, and record what you did as `other`.
 

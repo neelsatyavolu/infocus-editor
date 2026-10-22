@@ -141,6 +141,16 @@ def edl_cards(edl_path: Path, announcements: list[str]) -> list[dict[str, Any]]:
     return cards
 
 
+def edl_tosses(edl_path: Path, packages: list[dict[str, Any]]) -> list[str | None]:
+    """What the anchors said at each package's throw (a package segment's `toss_said`), in brief package order,
+    for the YouTube description when a package has no written toss."""
+    said = {}
+    for seg in (read_json(edl_path) or {}).get("segments") or []:
+        if isinstance(seg, dict) and seg.get("kind") == "file" and str(seg.get("toss_said") or "").strip():
+            said[str(seg.get("path"))] = str(seg["toss_said"]).strip()[:1500]
+    return [said.get(p.get("localPath")) for p in packages]
+
+
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text())

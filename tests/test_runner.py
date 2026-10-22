@@ -220,7 +220,9 @@ async def test_cards_go_to_the_portal_and_past_cards_reach_the_brief(tmp_path):
         write_json_atomic(job_dir / "show" / "edl.json", {"segments": [
             {"id": "open", "kind": "source"},
             {"id": "fair", "kind": "source", "card": {"title": "Club|Fair", "points": ["Friday", "Quad"], "script": 0}},
-            {"id": "pies", "kind": "source", "card": {"title": "Pie Sale", "points": ["$25"], "script": 9}}]})
+            {"id": "pies", "kind": "source", "card": {"title": "Pie Sale", "points": ["$25"], "script": 9}},
+            {"id": "pkg", "kind": "file", "path": str(job_dir / "packages" / "01-pkg0.mp4"),
+             "toss_said": "The club fair is Friday. Our reporter has more."}]})
         finish(job_dir)
 
     claim = edit_claim()
@@ -232,6 +234,7 @@ async def test_cards_go_to_the_portal_and_past_cards_reach_the_brief(tmp_path):
     assert deps.portal.completed["checks"]["cards"] == [
         {"title": "Club Fair", "points": ["Friday", "Quad"], "script": "Club fair Friday"},
         {"title": "Pie Sale", "points": ["$25"], "script": None}]
+    assert deps.portal.completed["checks"]["tosses"] == ["The club fair is Friday. Our reporter has more."]
     brief = json.loads((deps.cfg.work_root / f"{DATE}-j1" / "brief.json").read_text())
     assert brief["pastCards"] == past
 

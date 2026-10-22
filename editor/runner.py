@@ -14,7 +14,7 @@ from editor.backends import session_ref
 from editor.config import Config
 from editor.debugbundle import build_bundle
 from editor.housekeeping import kill_job_processes
-from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, edl_cards, job_paths, read_json, write_house_rules,
+from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, edl_cards, edl_tosses, job_paths, read_json, write_house_rules,
                              write_json_atomic)
 from editor.joblog import describe_claim, describe_payload, describe_recordings, job_log
 from editor.media import MediaError, probe
@@ -172,6 +172,9 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
 
     cards = edl_cards(paths.show / "edl.json", brief["announcements"])
     payload = completion_payload(claim, result, sessions, prepared, cards)
+    tosses = edl_tosses(paths.show / "edl.json", brief["packages"])
+    if any(tosses):
+        payload["checks"]["tosses"] = tosses  # the Portal's YouTube description, when a package has no toss
     if claim.fix and claim.fix.remember:
         # The Portal keeps the house rules; send back the rules the agent just extended.
         payload["houseRules"] = paths.house_rules.read_text()[:MAX_HOUSE_RULES]
