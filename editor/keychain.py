@@ -6,10 +6,14 @@ import re
 import subprocess
 from typing import Callable
 
+from editor.scrub import remember_secret
+
 SERVICE = "infocus-editor"
 NAME_RE = re.compile(r"^[a-z_]{1,40}$")
 # Tokens and base64 keys only: anything else would need quoting in `security -i`.
 VALUE_RE = re.compile(r"^[A-Za-z0-9._~+/=-]{1,8192}$")
+# Loaded values of these are masked in every log the editor writes.
+SCRUBBED_ITEMS = ("editor_token", "claude_oauth_token")
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -28,7 +32,11 @@ class Keychain:
         proc = self._run(["security", "find-generic-password", "-s", self._service, "-a", name, "-w"],
                          capture_output=True, text=True, check=False)
         value = (proc.stdout or "").strip()
-        return value if proc.returncode == 0 and value else None
+        if proc.returncode != 0 or not value:
+            return None
+        if name in SCRUBBED_ITEMS:
+            remember_secret(value)
+        return value
 
     def set(self, name: str, value: str) -> None:
         _check_name(name)

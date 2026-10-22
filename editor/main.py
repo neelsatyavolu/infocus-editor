@@ -58,7 +58,7 @@ def build_worker():
     return Worker(portal=portal, version=cfg.version, doctor=partial(check, cfg, probes),
                   run_job=partial(run_job, deps), update=updater, pairing=pairing,
                   backend_statuses=pool.statuses, set_agent_order=pool.set_order,
-                  commands=CommandRunner(cfg.repo_root, cfg.data_dir),
+                  commands=CommandRunner(cfg.repo_root, cfg.data_dir, work_root=cfg.work_root),
                   machine={"name": device_name(), "kind": cfg.machine_kind},
                   before_exit=lambda: reload_if_changed(cfg.data_dir),
                   housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days))
@@ -117,7 +117,14 @@ def cli(argv: list[str] | None = None) -> int:
 
         return cli_link(progress=args.progress, check=args.check)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from editor.joblog import ScrubFormatter
+    from editor.logs import quiet_http_logs
+
+    stderr = logging.StreamHandler()  # launchd sends it to ~/Library/Logs/infocus-editor.log
+    stderr.setFormatter(ScrubFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))  # never a token
+    logging.basicConfig(level=logging.INFO, handlers=[stderr])
+    quiet_http_logs()  # no line per heartbeat; failed requests still show
+
     if command == "doctor":
         from editor.commands import health_report
 

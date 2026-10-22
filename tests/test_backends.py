@@ -39,10 +39,12 @@ class FakeRunner:
         self.env = None
         self.cwd = None
 
-    async def __call__(self, cmd, *, env, cwd, on_line, cancel):
+    async def __call__(self, cmd, *, env, cwd, on_line, cancel, on_stderr=None):
         self.cmd, self.env, self.cwd = list(cmd), dict(env), cwd
         for line in self.lines:
             on_line(json.dumps(line) if isinstance(line, dict) else line)
+        if self.stderr and on_stderr:
+            on_stderr(self.stderr)
         return ProcResult(self.returncode, self.stderr)
 
 
@@ -360,3 +362,120 @@ async def test_leftover_background_child_is_stopped_after_a_normal_exit(tmp_path
     time.sleep(0.2)
     with pytest.raises(ProcessLookupError):
         os.kill(int(pidfile.read_text()), 0)
+
+
+# ---- transcripts and tool-call summaries ------------------------------------------
+
+
+def read_jsonl(path):
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+async def test_claude_writes_a_transcript_per_session_and_summarizes_tools(tmp_path):
+    from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage
+
+    from editor.backends.claude import claude_summary
+
+    messages = [
+        AssistantMessage(content=[TextBlock("Looking at the recording."),
+                                  ToolUseBlock("tu1", "Bash", {"command": "ffprobe src/01.mov", "timeout": 60})],
+                         model="claude-opus-5-5"),
+        UserMessage(content=[ToolResultBlock("tu1", "duration=480.0\nok", is_error=False)]),
+        AssistantMessage(content=[ToolUseBlock("tu2", "Write", {"file_path": "show/edl.json", "content": "{}"})],
+                         model="claude-opus-5-5"),
+        UserMessage(content=[ToolResultBlock("tu2", [{"type": "text", "text": "denied"}], is_error=True)]),
+        claude_result(),
+    ]
+    events = []
+    job = tmp_path / "job"
+    backend = claude(tmp_path, *messages)
+    out = await backend.run(job, "Edit the show.", None, events.append, asyncio.Event())
+    assert out.turns == 5
+    await claude(tmp_path, claude_result(session="s2")).run(job, "Again.", "s1", noop, asyncio.Event())
+    first = read_jsonl(job / "logs" / "agent-01-claude.jsonl")
+    assert [e["type"] for e in first] == ["AssistantMessage", "UserMessage", "AssistantMessage", "UserMessage",
+                                          "ResultMessage"]
+    assert first[0]["content"][1] == {"id": "tu1", "name": "Bash",
+                                      "input": {"command": "ffprobe src/01.mov", "timeout": 60}}
+    assert first[-1]["session_id"] == "s1" and first[-1]["num_turns"] == 5
+    assert read_jsonl(job / "logs" / "agent-02-claude.jsonl")[0]["session_id"] == "s2"
+    assert events == ["say Looking at the recording.", "tool Bash: ffprobe src/01.mov", "result Bash ok: duration=480.0 ok",
+                      'tool Write: {"file_path": "show/edl.json", "content": "{}"}', "result Write error: denied",
+                      "end success turns=5"]
+    assert claude_summary(UserMessage(content="plain prompt text"), {}) == []
+
+
+def test_claude_transcript_falls_back_to_repr():
+    from editor.backends.claude import serialize_message
+
+    class Odd:
+        def __repr__(self):
+            return "<odd>"
+
+    assert serialize_message(Odd()) == {"repr": "<odd>"}
+
+
+async def test_codex_writes_its_stdout_lines_and_stderr(tmp_path):
+    lines = [{"type": "thread.started", "thread_id": "t1"},
+             {"type": "item.started", "item": {"id": "i1", "type": "command_execution", "command": "ls show",
+                                                "status": "in_progress"}},
+             {"type": "item.completed", "item": {"id": "i1", "type": "command_execution", "command": "ls show",
+                                                  "aggregated_output": "edl.json\n", "exit_code": 0}},
+             "not json at all",
+             {"type": "turn.completed", "usage": {"input_tokens": 1}}]
+    runner = FakeRunner(lines, stderr="warning: refresh_token=abc123 expired\n")
+    backend, _ = connected_codex(tmp_path, runner)
+    events = []
+    job = tmp_path / "job"
+    await backend.run(job, "Edit the show.", None, events.append, asyncio.Event())
+    transcript = read_jsonl(job / "logs" / "agent-01-codex.jsonl")
+    assert transcript[:3] == lines[:3] and transcript[3] == {"type": "stdout", "text": "not json at all"}
+    assert (job / "logs" / "agent-01-codex.stderr.log").read_text() == "warning: refresh_token=[hidden] expired\n"
+    assert events == ["tool Bash: ls show", "result exit=0: edl.json"]
+
+
+def test_codex_summary_lines():
+    from editor.backends.codex import codex_summary
+
+    done = {"type": "item.completed", "item": {"id": "i9", "type": "command_execution", "command": "false",
+                                               "aggregated_output": "boom", "exit_code": 1}}
+    assert codex_summary(done) == ["tool Bash: false", "result exit=1: boom"]  # no start seen
+    assert codex_summary(done, {"i9"}) == ["result exit=1: boom"]
+    assert codex_summary({"type": "item.completed", "item": {"type": "file_change", "status": "completed",
+                                                             "changes": [{"path": "show/edl.json", "kind": "update"}]}}
+                         ) == ['tool file_change: ["update show/edl.json"]', "result completed"]
+    assert codex_summary({"type": "turn.failed", "error": {"message": "usage limit"}}) == ["turn failed: usage limit"]
+    long = codex_summary({"type": "item.started", "item": {"id": "i", "type": "command_execution",
+                                                           "command": "x" * 1000}})[0]
+    assert len(long) == len("tool Bash: ") + 300
+    assert codex_summary({"type": "turn.started"}) == []
+
+
+async def test_grok_writes_its_stdout_lines_and_summarizes_tools(tmp_path):
+    lines = [{"type": "tool_call", "toolCallId": "c1", "toolName": "run_terminal_cmd", "status": "in_progress",
+              "rawInput": {"command": "uv run python scripts/progress.py render Rendering"}},
+             {"type": "tool_call_update", "toolCallId": "c1", "status": "in_progress", "rawOutput": {}},
+             {"type": "tool_call_update", "toolCallId": "c1", "status": "completed",
+              "rawOutput": {"exitCode": 0, "output": "ok"}},
+             {"type": "end", "stopReason": "end_turn", "sessionId": "11111111-2222-3333-4444-555555555555"}]
+    runner = FakeRunner(lines, stderr="note\n")
+    backend, _ = connected_grok(tmp_path, runner)
+    events = []
+    job = tmp_path / "job"
+    await backend.run(job, "Edit the show.", None, events.append, asyncio.Event())
+    assert read_jsonl(job / "logs" / "agent-01-grok.jsonl") == lines
+    assert (job / "logs" / "agent-01-grok.stderr.log").read_text() == "note\n"
+    assert events == ["tool run_terminal_cmd: uv run python scripts/progress.py render Rendering",
+                      "result completed exit=0: ok"]
+
+
+def test_grok_summary_lines():
+    from editor.backends.grok import grok_summary
+
+    assert grok_summary({"type": "tool_call", "title": "Read", "rawInput": {"path": "a.json"}}) == [
+        'tool Read: {"path": "a.json"}']
+    failed = {"type": "tool_call_update", "status": "failed",
+              "content": [{"type": "content", "content": {"type": "text", "text": "No such file"}}]}
+    assert grok_summary(failed) == ["result failed: No such file"]
+    assert grok_summary({"type": "error", "message": "Authentication failed"}) == ["error: Authentication failed"]
+    assert grok_summary({"type": "usage"}) == []

@@ -366,3 +366,36 @@ def test_logs_are_tailed_and_scrubbed(tmp_path):
     for secret in ("abc.def.ghi", "z" * 20, "rt-secret-value", "deadbeef"):
         assert secret not in out, secret
     assert len(out.splitlines()) == 100
+
+
+def test_logs_command_appends_the_latest_job_log(tmp_path):
+    from editor.commands import CommandRunner
+
+    global_log = tmp_path / "infocus-editor.log"
+    global_log.write_text("2026-10-21 INFO editor: job j1 started: edit v1 for 2026-10-21\n")
+    job_log = tmp_path / "jobs" / "2026-10-21-j1" / "logs" / "editor.log"
+    job_log.parent.mkdir(parents=True)
+    job_log.write_text("----- run 1 (edit, v1) -----\n"
+                       "2026-10-21 12:00:00.000 INFO    editor.sessions: verify_render: fail (audio)\n"
+                       "2026-10-21 12:00:01.000 DEBUG   editor.sessions: claude: tool Bash: curl -H "
+                       "'Authorization: Bearer abc.def'\n")
+    out = CommandRunner(tmp_path, tmp_path, work_root=tmp_path / "jobs", log_file=global_log).logs()
+    assert out.startswith("2026-10-21 INFO editor: job j1 started")
+    assert "----- latest job: 2026-10-21-j1 -----" in out and "verify_render: fail (audio)" in out
+    assert "abc.def" not in out and len(out) <= 4000
+
+
+async def test_job_start_and_end_reach_the_global_log_with_status_and_duration(caplog):
+    import logging
+
+    class Report:
+        status = "REVIEW"
+
+    async def job(c, cancel):
+        return Report()
+
+    caplog.set_level(logging.INFO, logger="editor")
+    assert await worker(FakePortal([claim()]), job).step() is True
+    messages = [r.getMessage() for r in caplog.records if r.name == "editor"]
+    assert "job j1 started: edit v1 for 2026-10-21" in messages
+    assert any(m.startswith("job j1 finished: REVIEW in ") and m.endswith(" s") for m in messages)

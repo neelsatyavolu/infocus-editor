@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -33,6 +33,7 @@ class AgentOutcome:
     limit_hit: bool = False
     auth_failed: bool = False
     cancelled: bool = False
+    turns: int | None = field(default=None, compare=False)  # for the job log; None when the agent doesn't say
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import re
 import subprocess
 from dataclasses import replace
@@ -18,12 +19,15 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ResultMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, classify, failure
 from editor.backends.guard import bash_denied, write_denied
 from editor.config import Config
+from editor.joblog import Transcript, clip
 from editor.prompts import UNATTENDED, instruction
 
 MODEL = "claude-opus-5-5"
@@ -117,22 +121,26 @@ class ClaudeBackend:
             return AgentOutcome(ok=False, backend=self.name, session_id=None, auth_failed=True,
                                 error="Claude isn't connected")
         options = build_options(self._cfg, job_dir, token, resume_id)
-        try:
-            return await self._session(options, instruction(self._cfg.repo_root, prompt, with_rules=False),
-                                       on_event, cancel)
-        except Exception as e:  # noqa: BLE001 - the CLI process can fail in many ways
-            return failure(self.name, None, f"Claude session failed: {e.__class__.__name__}: {e}",
-                           cancelled=cancel.is_set())
+        with Transcript(job_dir, self.name) as transcript:
+            try:
+                return await self._session(options, instruction(self._cfg.repo_root, prompt, with_rules=False),
+                                           on_event, cancel, transcript)
+            except Exception as e:  # noqa: BLE001 - the CLI process can fail in many ways
+                return failure(self.name, None, f"Claude session failed: {e.__class__.__name__}: {e}",
+                               cancelled=cancel.is_set())
 
     async def _session(self, options: ClaudeAgentOptions, prompt: str, on_event: OnEvent,
-                       cancel: asyncio.Event) -> AgentOutcome:
+                       cancel: asyncio.Event, transcript: Transcript) -> AgentOutcome:
         result: ResultMessage | None = None
+        tool_names: dict[str, str] = {}
         async with self._factory(options=options) as client:
             watcher = asyncio.create_task(_interrupt_on(cancel, client))
             try:
                 await client.query(prompt)
                 async for message in client.receive_response():
-                    _log(message, on_event)
+                    transcript.event(type(message).__name__, serialize_message(message))
+                    for line in claude_summary(message, tool_names):
+                        on_event(line)
                     if isinstance(message, ResultMessage):
                         result = message
             finally:
@@ -143,12 +151,14 @@ class ClaudeBackend:
             return failure(self.name, None, "the session ended without a result", cancelled=cancel.is_set())
         cost = float(result.total_cost_usd or 0.0)
         if not result.is_error and result.subtype == "success":
-            return AgentOutcome(ok=True, backend=self.name, session_id=result.session_id, cost_usd=cost)
+            return AgentOutcome(ok=True, backend=self.name, session_id=result.session_id, cost_usd=cost,
+                                turns=result.num_turns)
         resumed_nothing = result.num_turns == 0 and options.resume
         session = None if resumed_nothing else result.session_id
         status = result.api_error_status
         text = _describe(result)
-        outcome = failure(self.name, session, text, cancelled=cancel.is_set(), cost_usd=cost)
+        outcome = replace(failure(self.name, session, text, cancelled=cancel.is_set(), cost_usd=cost),
+                          turns=result.num_turns)
         if status == 429 and not cancel.is_set():
             return replace(outcome, limit_hit=True, auth_failed=False)
         if status in (401, 403) and not cancel.is_set():
@@ -162,15 +172,42 @@ async def _interrupt_on(cancel: asyncio.Event, client: Any) -> None:
         await client.interrupt()
 
 
-def _log(message: Any, on_event: OnEvent) -> None:
+def serialize_message(message: Any) -> dict[str, Any]:
+    """An SDK message as plain data for the transcript (non-JSON values become repr() when written)."""
+    if dataclasses.is_dataclass(message) and not isinstance(message, type):
+        try:
+            return dataclasses.asdict(message)
+        except Exception:  # noqa: BLE001 - a value that can't be copied
+            pass
+    return {"repr": repr(message)}
+
+
+def claude_summary(message: Any, tool_names: dict[str, str]) -> list[str]:
+    """Job-log lines for one SDK message: tool calls, tool results, what the agent says.
+    `tool_names` maps tool_use ids to names, so a result line can say which tool it answers."""
+    lines = []
     if isinstance(message, AssistantMessage):
         for block in message.content:
             if isinstance(block, ToolUseBlock):
-                on_event(f"tool {block.name}")
+                tool_names[block.id] = block.name
+                args = block.input.get("command") if block.name == "Bash" and "command" in block.input else block.input
+                lines.append(f"tool {block.name}: {clip(args)}")
             elif isinstance(block, TextBlock) and block.text.strip():
-                on_event("say " + block.text.strip().replace("\n", " ")[:300])
+                lines.append("say " + clip(block.text))
+    elif isinstance(message, UserMessage) and isinstance(message.content, list):
+        for block in message.content:
+            if isinstance(block, ToolResultBlock):
+                status = "error" if block.is_error else "ok"
+                lines.append(f"result {tool_names.get(block.tool_use_id, '?')} {status}: {clip(_text(block.content))}")
     elif isinstance(message, ResultMessage):
-        on_event(f"result {message.subtype} turns={message.num_turns}")
+        lines.append(f"end {message.subtype} turns={message.num_turns}")
+    return lines
+
+
+def _text(content: Any) -> str:
+    if isinstance(content, list):
+        return " ".join(str(c.get("text") or "") if isinstance(c, dict) else str(c) for c in content)
+    return "" if content is None else str(content)
 
 
 def _describe(result: ResultMessage) -> str:

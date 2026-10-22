@@ -16,9 +16,9 @@ The editor talks to two services:
 | `heartbeat` | `{ version: string≤40, busy: boolean, health: { ok: boolean, problems: string[] (≤20, each ≤300) }, publicKey: string (base64 X25519), backends: [{ name: "claude"\|"codex"\|"grok", connected: boolean, detail: string≤200 }], credentialAcks: [{ id, ok: boolean, error?: string≤300 }] (≤10) }` | `{ cancelJobIds: string[], targetVersion: string \| null, credentials: [{ id, backend, ciphertext }] }` |
 | `claim` | `{}` | `{ job: null }`, or a claim (below) |
 | `jobs/<id>/progress` | `{ stage: Stage, message: string≤300 }` | `{ cancel: boolean }` |
-| `jobs/<id>/upload-targets` | `{}` | `{ driveBaseUrl, video: { path, token }, poster: { path, token } }` |
-| `jobs/<id>/complete` | `{ outputNasPath, decisions, checks, needsReview, costUsd, agentSessionId, reply? }` | `{ ok: true }` |
-| `jobs/<id>/fail` | `{ error: string≤1000, cancelled: boolean }` | `{ ok: true }` |
+| `jobs/<id>/upload-targets` | `{}` | `{ driveBaseUrl, video: { path, token }, poster: { path, token }, log: { path, token } }` |
+| `jobs/<id>/complete` | `{ outputNasPath, decisions, checks, needsReview, costUsd, agentSessionId, reply?, debugLogPath? }` | `{ ok: true }` |
+| `jobs/<id>/fail` | `{ error: string≤1000, cancelled: boolean, debugLogPath? }` | `{ ok: true }` |
 
 `Stage` is one of `download | analyze | graphics | audio | build | render | check | upload | fix`.
 
@@ -54,6 +54,19 @@ The editor talks to two services:
 - **Fixes:** a fix gets a fresh `outputNasPath` and `posterNasPath` (new stamp) and `version + 1`. A fix never re-downloads anything.
 - **Download URLs:** read-only tokens that last 6 hours.
 - **`upload-targets`:** mints read/write tokens (6 h) for the job's *current* output and poster paths. Call it right before uploading.
+
+### Debug logs
+
+- **Every run uploads a debug bundle,** whether it completes, fails or is cancelled. Failures upload too, by calling `upload-targets` before `fail`.
+- **Where it goes:** `log.path` is `Package Storage/Shows/<date>/editor-logs/<jobId>-v<version>-<stamp>.tar.gz`, minted fresh by `upload-targets`.
+- **What's in it (no media):**
+  - the job log and the agent transcripts (secrets scrubbed)
+  - `brief.json`, `result.json` and `status.json`
+  - `show/edl.json`, `show/recordings.json`, `show/layout.json` and `show/check/verify.json`
+  - the analysis reports
+- **Recording it:** `debugLogPath` on `complete`/`fail` must equal that path. The Portal stores it on the job (as `checks.debugLog`).
+- **In the panel:** each version gets a **Download debug log** link (a 6-hour read token).
+- **The `logs` remote command** also returns the tail of the latest job's log.
 
 ### Complete
 

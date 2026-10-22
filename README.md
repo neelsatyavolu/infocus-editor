@@ -31,6 +31,7 @@ Portal  ── claim / heartbeat / progress / complete ──►  this worker (l
 | `editor/main.py`, `editor/worker.py` | CLI (`run`, `doctor`, `link`, `connect`) and the loop: a heartbeat every 60 s (also during jobs, carrying health, machine, AI accounts, pairing key and acks), Portal settings and commands, a health check every 10 min, one job at a time, updates between jobs. |
 | `editor/link.py`, `editor/commands.py`, `editor/service.py` | Linking by device code; Portal commands (health check, update, restart, repair, log); restarting and reloading the launchd agent. |
 | `editor/power.py`, `editor/logs.py` | Job-length sleep assertion on personal computers; scrubbed log tail. |
+| `editor/joblog.py`, `editor/scrub.py`, `editor/debugbundle.py` | The per-job log and agent transcripts; secret scrubbing for every log; the debug bundle uploaded after each run. |
 | `editor/runner.py`, `editor/sessions.py` | One job: prepare → agent sessions → verify → check the output → upload → complete. Also handles cancel, the 75-minute limit and falling back to the next AI account. |
 | `editor/backends/` | One interface over `claude.py` (Agent SDK + OAuth token), `codex.py` (`codex exec --json`) and `grok.py` (`grok -p`). `guard.py` holds the rules that keep agents away from root; `proc.py` runs a CLI in its own process group. |
 | `editor/pairing.py`, `editor/connect.py` | Connecting an AI account: the Mac's key pair and credential install; `connect` signs in on a producer's computer. |
@@ -86,7 +87,7 @@ Under the hood the app runs `install/install.sh --unattended --progress --repo <
   - **Health check** and **Log**: run at once, even mid-job.
   - **Update**, **Restart** and **Repair**: wait until the current job ends. Repair re-runs `user-setup.sh --update --unattended`, then restarts the editor.
 
-  Each result comes back in the next heartbeat. Logs are the last 100 lines with tokens scrubbed.
+  Each result comes back in the next heartbeat. **Log** sends the last 100 lines of the editor's log plus the last 150 lines of the latest job's log, with tokens scrubbed.
 - **Unlink:** the machine shows "This Mac isn't linked to the Portal — open InFocus Editor Setup and choose Link again". It stops taking jobs and checks again every 5 minutes.
 
 `~/InFocusEditor/config.toml` needs only `portal_url` (setup writes it, along with `machine_kind`); everything else has defaults.
@@ -182,6 +183,25 @@ Run `install/uninstall.sh` as the editor user. It removes the launchd agent, the
 - `2`: `config.toml` is missing or invalid; open InFocus Editor Setup and choose Repair.
 
 A Portal that rejects the token (401) doesn't stop the editor: it waits to be linked again.
+
+## Logs and debugging
+
+When an automatic edit goes wrong, these show what happened:
+
+| What | Where (on the editing Mac) |
+|---|---|
+| The editor's log: start-up, heartbeat problems, one line when each job starts and ends | `~/Library/Logs/infocus-editor.log` |
+| The job log: every step of every run of that job (claim, downloads, detection, each agent session, `verify_render` results, uploads, complete or fail, tracebacks) | `<job folder>/logs/editor.log` |
+| The agent transcripts: each session's raw event stream, plus a CLI agent's stderr | `<job folder>/logs/agent-<NN>-<backend>.jsonl`, `agent-<NN>-<backend>.stderr.log` |
+| The debug bundle: the job log, the transcripts and the job's small JSON files (brief, result, EDL, recordings, verify, analysis reports), no media | `<job folder>/logs/debug-<version>.tar.gz` |
+
+Job folders are `~/InFocusEditor/jobs/<showDate>-<jobId>/` and are kept 14 days.
+
+**From the Portal, without touching the Mac:**
+- **Download debug log:** after every run (finished, failed or cancelled), the editor uploads the debug bundle, and the job's version gets this link.
+- **Show log:** the machine's **Log** command returns the editor's recent log and the tail of the latest job's log.
+
+**Secrets are scrubbed** from all of these before they're written: Claude tokens, editor tokens, Bearer headers, `token=` links and JSON fields such as `token`, `refresh_token` and `password`.
 
 ## Running and testing
 

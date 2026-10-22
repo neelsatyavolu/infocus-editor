@@ -1,37 +1,96 @@
-"""The recent log for the Portal's `logs` command, with secrets scrubbed."""
+"""The recent log for the Portal's `logs` command, with secrets scrubbed, and the
+global log's own settings."""
 from __future__ import annotations
 
-import re
+import logging
 from collections import deque
 from pathlib import Path
 
+from editor.scrub import scrub
+
+__all__ = ["LOG_FILE", "MAX_OUTPUT", "latest_job_log", "logs_report", "quiet_http_logs", "scrub", "tail_log"]
+
 LOG_FILE = Path.home() / "Library" / "Logs" / "infocus-editor.log"
 MAX_OUTPUT = 4000
-
-_PATTERNS = (
-    (re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}"), "sk-ant-[hidden]"),
-    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"), "Bearer [hidden]"),
-    (re.compile(r"(?i)([?&](?:token|code|key|signature|sig)=)[^&\s\"']+"), r"\1[hidden]"),
-    (re.compile(r"(?i)(\"?(?:access_token|refresh_token|id_token|token|api_key|apikey|secret|password|"
-                r"ciphertext|deviceCode|device_code)\"?\s*[:=]\s*\"?)[^\s\",}]+"), r"\1[hidden]"),
-    (re.compile(r"\b(?:rw|r)\.\d{9,}\.[0-9a-f]{32,}\b"), "[hidden file token]"),
-    (re.compile(r"\bifd_[A-Za-z0-9_-]{8,}"), "ifd_[hidden]"),
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "[hidden jwt]"),
-    (re.compile(r"\b[A-Za-z0-9+/_-]{40,}={0,2}"), "[hidden]"),
-)
+GLOBAL_LINES = 100
+JOB_LINES = 150
 
 
-def scrub(text: str) -> str:
-    for pattern, replacement in _PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text
-
-
-def tail_log(path: Path = LOG_FILE, lines: int = 100) -> str:
+def _last_lines(path: Path, lines: int) -> list[str] | None:
     try:
         with path.open("r", errors="replace") as fh:
-            last = deque(fh, maxlen=lines)
+            return list(deque(fh, maxlen=lines))
     except OSError:
+        return None
+
+
+def tail_log(path: Path = LOG_FILE, lines: int = GLOBAL_LINES) -> str:
+    last = _last_lines(path, lines)
+    if last is None:
         return f"No log at {path}."
-    text = scrub("".join(last))
-    return text[-MAX_OUTPUT:]
+    return scrub("".join(last))[-MAX_OUTPUT:]
+
+
+def latest_job_log(work_root: Path) -> Path | None:
+    """The editor.log of the job folder that logged most recently."""
+    newest: tuple[float, Path] | None = None
+    try:
+        candidates = list(work_root.glob("*/logs/editor.log"))
+    except OSError:
+        return None
+    for path in candidates:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if newest is None or mtime > newest[0]:
+            newest = (mtime, path)
+    return newest[1] if newest else None
+
+
+def _fit(lines: list[str], budget: int) -> str:
+    """The most recent whole lines that fit in `budget` characters."""
+    kept: list[str] = []
+    used = 0
+    for line in reversed(lines):
+        if used + len(line) > budget:
+            break
+        kept.append(line)
+        used += len(line)
+    return "".join(reversed(kept))
+
+
+def logs_report(global_log: Path = LOG_FILE, work_root: Path | None = None, limit: int = MAX_OUTPUT) -> str:
+    """The global log tail, then the latest job's log tail, scrubbed and within `limit` characters.
+    Trimming drops the oldest lines of each part first."""
+    last = _last_lines(global_log, GLOBAL_LINES)
+    global_lines = [f"No log at {global_log}.\n"] if last is None else scrub("".join(last)).splitlines(keepends=True)
+    job = latest_job_log(work_root) if work_root else None
+    if job is None:
+        return _fit(global_lines, limit)
+    header = f"\n----- latest job: {job.parent.parent.name} -----\n"
+    job_lines = scrub("".join(_last_lines(job, JOB_LINES) or [])).splitlines(keepends=True)
+    room = limit - len(header)
+    global_need, job_need = sum(map(len, global_lines)), sum(map(len, job_lines))
+    # Split the room evenly; whatever one part doesn't need goes to the other.
+    global_budget = min(global_need, max(room // 2, room - job_need))
+    global_text = _fit(global_lines, global_budget).rstrip("\n")
+    return (global_text + header + _fit(job_lines, room - global_budget))[-limit:]
+
+
+class _HttpxFailuresOnly(logging.Filter):
+    """httpx logs every request at INFO ("HTTP Request: POST … 200 OK"): keep only failures."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        args = record.args if isinstance(record.args, tuple) else ()
+        status = next((a for a in args if isinstance(a, int)), None)
+        return status is not None and status >= 400
+
+
+def quiet_http_logs() -> None:
+    logger = logging.getLogger("httpx")
+    if not any(isinstance(f, _HttpxFailuresOnly) for f in logger.filters):
+        logger.addFilter(_HttpxFailuresOnly())
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

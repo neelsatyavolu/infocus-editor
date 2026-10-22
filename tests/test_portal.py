@@ -133,9 +133,30 @@ async def test_upload_targets_and_fail():
     c = client_with(handler)
     t = await c.upload_targets("j1")
     assert t.drive_base_url == "https://drive.example.org" and t.video.token == "rw.1.a"
+    assert t.log is None  # an older Portal mints no debug log target
     await c.fail("j1", "x" * 2000, cancelled=True)
     path, body = bodies[-1]
     assert path.endswith("/jobs/j1/fail") and len(body["error"]) == 1000 and body["cancelled"] is True
+    assert "debugLogPath" not in body
+
+
+async def test_upload_targets_with_a_log_target_and_fail_with_its_path():
+    bodies = []
+    log_path = "Package Storage/Shows/d/editor-logs/j1-v1-111.tar.gz"
+
+    def handler(req):
+        bodies.append(json.loads(req.content))
+        if req.url.path.endswith("upload-targets"):
+            return ok({"driveBaseUrl": "https://drive.example.org",
+                       "video": {"path": "v.mp4", "token": "rw.1.a"}, "poster": {"path": "v.jpg", "token": "rw.1.b"},
+                       "log": {"path": log_path, "token": "rw.1.c"}})
+        return ok({"ok": True})
+
+    c = client_with(handler)
+    t = await c.upload_targets("j1")
+    assert t.log.path == log_path and t.log.token == "rw.1.c" and "rw.1.c" not in repr(t)
+    await c.fail("j1", "boom", debug_log_path=log_path)
+    assert bodies[-1] == {"error": "boom", "cancelled": False, "debugLogPath": log_path}
 
 
 async def test_heartbeat_without_a_target_version():

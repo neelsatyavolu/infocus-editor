@@ -34,6 +34,8 @@ class Reporter:
         key = (stage, message)
         if key == self._last and not force:
             return
+        if key != self._last:
+            log.info("progress: %s: %s", stage, message)
         self._last = key
         self.stage = stage
         self._sent_at = self._clock()

@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from editor.backends import BackendPool, parse_session_ref
 from editor.jobfiles import JobPaths, read_json
+from editor.joblog import clip
 from editor.portal import Claim
 from editor.prepare import JobFailed
 from editor.progress import Reporter, forwarding
@@ -67,11 +69,15 @@ async def run_sessions(deps, claim: Claim, paths: JobPaths, brief: dict[str, Any
     backend = queue.pop(0)
     prompt = first_prompt
     cost, session, result, verdict, error = 0.0, None, None, Verdict(False), None
-    attempts = 0
+    attempts = number = 0
     while True:
+        number += 1
+        log.info("session %d: %s, %s", number, backend.name, f"resuming {resume}" if resume else "fresh")
+        started = time.monotonic()
         async with forwarding(reporter, paths.status, deps.status_poll_s):
             outcome = await backend.run(paths.root, prompt, resume, lambda line, n=backend.name:
-                                        log.info("%s: %s", n, line), cancel)
+                                        log.debug("%s: %s", n, line), cancel)
+        _log_outcome(number, outcome, time.monotonic() - started)
         cost += outcome.cost_usd
         if cancel.is_set() or outcome.cancelled:
             raise JobCancelled()
@@ -81,6 +87,7 @@ async def run_sessions(deps, claim: Claim, paths: JobPaths, brief: dict[str, Any
                 raise JobFailed(f"{pool.label(backend.name)} {_why(outcome)} and no other AI account is "
                                 f"connected. Connect another one in the Portal, then Redo.")
             nxt = queue.pop(0)
+            log.warning("%s %s; switching to %s in a fresh session", backend.name, _why(outcome), nxt.name)
             decisions.append(_decision(f"Edited with {pool.label(nxt.name)} because {pool.label(backend.name)} "
                                        f"{_why(outcome)}"))
             backend, resume, session = nxt, None, None
@@ -91,15 +98,44 @@ async def run_sessions(deps, claim: Claim, paths: JobPaths, brief: dict[str, Any
         result = read_json(paths.result)
         if result and result.get("abort"):
             raise JobFailed(str(result["abort"])[:1000])
+        log.info("result.json: %s", _describe_result(result))
         await reporter.report("check", "Checking the render")
         verdict = await asyncio.to_thread(deps.verify, deps.cfg.skill_dir, paths.show, Path(brief["output"]))
+        _log_verdict(verdict, paths.show / "check" / "verify.json")
         if (result is not None and verdict.passed) or attempts == MAX_RESUMES:
             break
         attempts += 1
         retry = verify_retry_prompt(verdict.failures, result is None)
         prompt = retry if session else FALLBACK_PREFACE + first_prompt + "\n\n" + retry
         resume = session
+        log.info("verify resume %d/%d: %s; %s", attempts, MAX_RESUMES,
+                 "result.json is missing" if result is None else f"{len(verdict.failures)} failure(s)",
+                 f"resuming session {session}" if session else "no session to resume, starting fresh")
     return SessionsResult(result, verdict, cost, backend.name, session, error, tuple(decisions))
+
+
+def _log_outcome(number: int, outcome, seconds: float) -> None:
+    status = "ok" if outcome.ok else f"error: {outcome.error}"
+    log.info("session %d ended: %s, session %s, turns %s, cost $%.4f, limit_hit=%s, auth_failed=%s, "
+             "cancelled=%s, %.1f s", number, status, outcome.session_id or "none",
+             "?" if outcome.turns is None else outcome.turns, outcome.cost_usd, outcome.limit_hit,
+             outcome.auth_failed, outcome.cancelled, seconds)
+
+
+def _describe_result(result: dict[str, Any] | None) -> str:
+    if result is None:
+        return "missing"
+    decisions = [d for d in result.get("decisions") or [] if isinstance(d, dict)]
+    return (f"{len(decisions)} decision(s) ({sum(1 for d in decisions if d.get('flagged'))} flagged), "
+            f"needsReview={result.get('needsReview')}, abort={result.get('abort')!r}")
+
+
+def _log_verdict(verdict: Verdict, report: Path) -> None:
+    rules = sorted({str(f.get("rule")) for f in verdict.failures if isinstance(f, dict)})
+    log.info("verify_render: %s%s, report %s", "pass" if verdict.passed else "fail",
+             f" ({', '.join(rules)})" if rules else "", report)
+    for failure in verdict.failures:
+        log.debug("verify failure: %s", clip(failure))
 
 
 def _decision(detail: str) -> dict[str, Any]:

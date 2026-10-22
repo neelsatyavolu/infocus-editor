@@ -8,13 +8,14 @@ from __future__ import annotations
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, failure
 from editor.backends.cli import agent_env, parse_json_line, private_dir, read_auth
 from editor.backends.guard import codex_rules
 from editor.backends.proc import ProcessRunner, run_process
 from editor.config import Config
+from editor.joblog import Transcript, clip
 from editor.prompts import instruction
 
 CONFIG_TOML = (
@@ -77,9 +78,11 @@ class CodexBackend:
         self.prepare_home()
         state = _CodexState(resume_id)
         full_prompt = instruction(self._cfg.repo_root, prompt, with_rules=True)
-        result = await self._runner(self.command(job_dir, full_prompt, resume_id), env=self.env(),
-                                    cwd=self._cfg.repo_root, on_line=lambda l: state.feed(l, on_event),
-                                    cancel=cancel)
+        with Transcript(job_dir, self.name) as transcript:
+            result = await self._runner(self.command(job_dir, full_prompt, resume_id), env=self.env(),
+                                        cwd=self._cfg.repo_root,
+                                        on_line=lambda l: state.feed(l, on_event, transcript),
+                                        cancel=cancel, on_stderr=transcript.stderr)
         if result.cancelled or cancel.is_set():
             return failure(self.name, state.session_id, "cancelled", cancelled=True)
         if result.returncode == 0 and not state.error:
@@ -94,11 +97,22 @@ class _CodexState:
     def __init__(self, session_id: str | None):
         self.session_id = session_id
         self.error: str | None = None
+        self.started: set[str] = set()  # command items whose start was already logged
 
-    def feed(self, line: str, on_event: OnEvent) -> None:
+    def feed(self, line: str, on_event: OnEvent, transcript: Transcript | None = None) -> None:
         event = parse_json_line(line)
+        if transcript is not None and line.strip():
+            if event is None:
+                transcript.event("stdout", {"text": line})
+            else:
+                transcript.line(line)
         if event is None:
             return
+        for summary in codex_summary(event, self.started):
+            on_event(summary)
+        item = event.get("item") or {}
+        if event.get("type") == "item.started" and item.get("id"):
+            self.started.add(str(item["id"]))
         kind = event.get("type")
         if kind == "thread.started" and event.get("thread_id"):
             self.session_id = str(event["thread_id"])
@@ -106,11 +120,38 @@ class _CodexState:
             self.error = str((event.get("error") or {}).get("message") or "turn failed")
         elif kind == "error":
             self.error = str(event.get("message") or "error")
-        elif kind == "item.completed":
-            item = event.get("item") or {}
-            if item.get("type") == "command_execution":
-                on_event("tool Bash " + str(item.get("command") or "")[:200])
-            elif item.get("type") == "agent_message":
-                on_event("say " + str(item.get("text") or "").replace("\n", " ")[:300])
         elif kind == "turn.completed":
             self.error = None
+
+
+def codex_summary(event: dict[str, Any], started: set[str] | frozenset[str] = frozenset()) -> list[str]:
+    """Job-log lines for one `codex exec --json` event. A command is logged when it starts
+    (`item.started`) and its exit code and output when it completes; `started` holds the item
+    ids already logged as started, so a completion without a start logs both."""
+    kind, item = event.get("type"), event.get("item") or {}
+    itype = item.get("type")
+    if kind == "turn.failed":
+        return [f"turn failed: {clip((event.get('error') or {}).get('message') or '')}"]
+    if kind == "error":
+        return [f"error: {clip(event.get('message') or '')}"]
+    if kind not in ("item.started", "item.completed"):
+        return []
+    if itype == "command_execution":
+        call = f"tool Bash: {clip(item.get('command') or '')}"
+        if kind == "item.started":
+            return [call]
+        result = f"result exit={item.get('exit_code')}: {clip(item.get('aggregated_output') or '')}"
+        return [result] if str(item.get("id")) in started else [call, result]
+    if kind == "item.started":
+        return []
+    if itype == "file_change":
+        changes = [f"{c.get('kind')} {c.get('path')}" for c in item.get("changes") or [] if isinstance(c, dict)]
+        return [f"tool file_change: {clip(changes)}", f"result {item.get('status') or 'done'}"]
+    if itype == "mcp_tool_call":
+        return [f"tool {item.get('server')}.{item.get('tool')}: {clip(item.get('arguments') or '')}",
+                f"result {item.get('status') or 'done'}: {clip(item.get('error') or item.get('result') or '')}"]
+    if itype == "agent_message":
+        return ["say " + clip(item.get("text") or "")]
+    if itype == "error":
+        return [f"error: {clip(item.get('message') or '')}"]
+    return []

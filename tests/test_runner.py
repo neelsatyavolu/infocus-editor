@@ -16,6 +16,7 @@ from tests.helpers import make_config
 DATE = "2026-10-21"
 OUT_NAS = f"Package Storage/Shows/{DATE}/InFocus Show {DATE}-111.mp4"
 POSTER_NAS = f"Package Storage/Shows/{DATE}/InFocus Show {DATE}-111.poster.jpg"
+LOG_NAS = f"Package Storage/Shows/{DATE}/editor-logs/j1-v1-111.tar.gz"
 
 
 def probe_json(duration=480.0, width=1920, height=1080, audio=True, video=True):
@@ -53,31 +54,42 @@ class FakeRun:
 
 
 class FakePortal:
-    def __init__(self, cancel_on=None):
+    """An older Portal by default (no debug log target); `log_target=True` adds one."""
+
+    def __init__(self, cancel_on=None, log_target=False):
         self.progress_calls = []
         self.completed = None
         self.failed = None
+        self.debug_log_path = None
+        self.calls = []
         self.cancel_on = cancel_on
+        self.log_target = log_target
 
     async def progress(self, job_id, stage, message):
         self.progress_calls.append((stage, message))
         return self.cancel_on is not None and self.cancel_on == stage
 
     async def upload_targets(self, job_id):
+        self.calls.append("upload_targets")
         return UploadTargets("https://drive.example.org", UploadTarget(OUT_NAS, "rw.v"),
-                             UploadTarget(POSTER_NAS, "rw.p"))
+                             UploadTarget(POSTER_NAS, "rw.p"),
+                             UploadTarget(LOG_NAS, "rw.l") if self.log_target else None)
 
     async def complete(self, job_id, payload):
+        self.calls.append("complete")
         self.completed = payload
 
-    async def fail(self, job_id, error, cancelled=False):
+    async def fail(self, job_id, error, cancelled=False, debug_log_path=None):
+        self.calls.append("fail")
         self.failed = (error, cancelled)
+        self.debug_log_path = debug_log_path
 
 
 class FakeDrive:
-    def __init__(self):
+    def __init__(self, fail_paths=()):
         self.downloads = []
         self.uploads = []
+        self.fail_paths = set(fail_paths)
 
     async def download(self, url, dest, size):
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +100,8 @@ class FakeDrive:
 
     async def upload(self, base, path, token, local):
         assert local.is_file()
+        if path in self.fail_paths:
+            raise OSError("Drive upload failed (503)")
         self.uploads.append((path, token, local.name))
 
 
@@ -170,7 +184,7 @@ class FakePopen:
         return 0
 
 
-def deps_for(tmp_path, agent, *, portal=None, verdicts=None, run=None, timeout=75, kind="dedicated"):
+def deps_for(tmp_path, agent, *, portal=None, verdicts=None, run=None, timeout=75, kind="dedicated", drive=None):
     cfg = make_config(tmp_path, run_timeout_minutes=timeout, machine_kind=kind)
     verdicts = list(verdicts or [])
 
@@ -179,7 +193,7 @@ def deps_for(tmp_path, agent, *, portal=None, verdicts=None, run=None, timeout=7
 
     agents = agent if isinstance(agent, list) else [agent]
     pool = BackendPool(agents, ["claude", "codex", "grok"])
-    return RunnerDeps(cfg=cfg, portal=portal or FakePortal(), drive=FakeDrive(), pool=pool,
+    return RunnerDeps(cfg=cfg, portal=portal or FakePortal(), drive=drive or FakeDrive(), pool=pool,
                       run=run or FakeRun(), verify=verify, sweep=Sweep(), popen=FakePopen, status_poll_s=0.01,
                       envelope=lambda path: None, profile=lambda path: Profile(()))
 
@@ -550,3 +564,166 @@ async def test_missing_house_rules_use_the_built_in_example(tmp_path):
     await run_job(deps, edit_claim())
     text = (deps.cfg.work_root / f"{DATE}-j1" / "house-rules.md").read_text()
     assert text == deps.cfg.house_rules_example.read_text()
+
+
+# ---- job log and debug bundle ---------------------------------------------------------
+
+
+def job_log_text(deps):
+    return (deps.cfg.work_root / f"{DATE}-j1" / "logs" / "editor.log").read_text()
+
+
+def bundle_names(deps, version=1):
+    import tarfile
+
+    with tarfile.open(deps.cfg.work_root / f"{DATE}-j1" / "logs" / f"debug-{version}.tar.gz") as tar:
+        return tar.getnames()
+
+
+async def test_the_job_log_records_every_step_and_a_header_per_run(tmp_path):
+    import logging
+
+    handlers = list(logging.getLogger().handlers)
+    bad = Verdict(False, ({"rule": "cover_span", "overlay": "dual", "detail": "ends early"},))
+    deps = deps_for(tmp_path, FakeAgent(*[lambda d, c: finish(d, statuses=[("render", "Rendering")])] * 2),
+                    verdicts=[bad, Verdict(True)])
+    await run_job(deps, edit_claim())
+    deps2 = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d, reply="Done")))
+    await run_job(deps2, fix_claim())
+    assert logging.getLogger().handlers == handlers  # detached after each job
+    text = job_log_text(deps)
+    for expected in [
+        "----- run 1 (edit, v1) -----",
+        "claim: job j1, show 2026-10-21, edit v1, 1 source(s), 1 package(s), 2 download(s)",
+        "precheck: 1 source(s) (0 ignored), 1 package(s), 2 download(s) sent",
+        "download Shows/show.mov -> ", "MB/s)",
+        "recording r1: program", "detection: structure: 1 recording: r1 program",
+        "precheck: length 4:00 is within 1-30 minutes",
+        "brief.json written: ", "progress: download: Downloading the recording and packages",
+        "session 1: claude, fresh", "session 1 ended: ok, session sess-1, turns ?, cost $1.5000",
+        "progress: render: Rendering", "result.json: 0 decision(s) (0 flagged), needsReview=False",
+        "verify_render: fail (cover_span), report ", "show/check/verify.json",
+        "verify failure: {\"rule\": \"cover_span\"",
+        "verify resume 1/2: 1 failure(s); resuming session sess-1",
+        "session 2: claude, resuming sess-1", "verify_render: pass, report",
+        "output check: ", "272.6 s, video h264 1920x1080, audio aac, poster present",
+        f"upload {deps.cfg.work_root / f'{DATE}-j1' / 'out'}", f"-> {OUT_NAS}: 0.0 MB in",
+        "completing: needsReview=False, coversClean=True",
+        "the Portal has no debug log target (older Portal)",
+        "complete sent, debugLogPath none",
+        "----- run 2 (fix, v2) -----", "claim: job j1, show 2026-10-21, fix v2", "precheck: the fix reuses",
+        "reply: Done",
+    ]:
+        assert expected in text, expected
+    assert "https://drive.example.org/f?path" not in text  # download URLs never reach the log
+    assert text.index("----- run 1") < text.index("----- run 2")
+
+
+async def test_complete_carries_the_uploaded_debug_bundle(tmp_path):
+    portal = FakePortal(log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)), portal=portal)
+    report = await run_job(deps, edit_claim())
+    assert report.status == "REVIEW"
+    assert deps.drive.uploads[2] == (LOG_NAS, "rw.l", "debug-1.tar.gz")
+    assert portal.completed["debugLogPath"] == LOG_NAS
+    assert portal.calls == ["upload_targets", "complete"]  # one set of targets serves all three uploads
+    assert {"logs/editor.log", "brief.json", "result.json", "show/recordings.json"} <= set(bundle_names(deps))
+
+
+async def test_a_failed_run_uploads_the_bundle_before_failing(tmp_path):
+    portal = FakePortal(log_target=True)
+    run = FakeRun({f"InFocus Show {DATE} v1.mp4": probe_json(272.6, audio=False)})
+    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)), portal=portal, run=run)
+    report = await run_job(deps, edit_claim())
+    assert report.status == "FAILED"
+    assert portal.calls == ["upload_targets", "fail"]
+    assert portal.failed == ("The render has no audio track.", False) and portal.debug_log_path == LOG_NAS
+    assert deps.drive.uploads == [(LOG_NAS, "rw.l", "debug-1.tar.gz")]
+    assert "failing the job (cancelled=False): The render has no audio track." in job_log_text(deps)
+
+
+async def test_a_cancelled_run_still_sends_its_bundle(tmp_path):
+    async def step(job_dir, cancel):
+        write_json_atomic(job_dir / "status.json", {"stage": "render", "message": "Rendering"})
+        for _ in range(200):
+            if cancel.is_set():
+                return AgentOutcome(ok=False, backend="claude", session_id="s", cancelled=True)
+            await asyncio.sleep(0.01)
+
+    portal = FakePortal(cancel_on="render", log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(step), portal=portal)
+    report = await run_job(deps, edit_claim())
+    assert report.status == "CANCELLED" and portal.failed == ("Cancelled by a producer.", True)
+    assert portal.debug_log_path == LOG_NAS
+    assert "cancelled by a producer at the render step" in job_log_text(deps)
+
+
+async def test_a_timed_out_run_logs_the_stage_and_sends_its_bundle(tmp_path):
+    async def step(job_dir, cancel):
+        write_json_atomic(job_dir / "status.json", {"stage": "render", "message": "Rendering"})
+        await asyncio.sleep(10)
+
+    portal = FakePortal(log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(step), portal=portal, timeout=0.005)
+    await run_job(deps, edit_claim())
+    assert portal.debug_log_path == LOG_NAS
+    assert "timed out: the 0.005-minute limit ran out at the render step" in job_log_text(deps)
+
+
+async def test_a_crash_logs_the_traceback_and_sends_its_bundle(tmp_path):
+    def step(job_dir, cancel):
+        raise KeyError("brief")
+
+    portal = FakePortal(log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(step), portal=portal)
+    report = await run_job(deps, edit_claim())
+    assert report.status == "FAILED" and report.message.startswith("Editor error: KeyError")
+    text = job_log_text(deps)
+    assert "Traceback (most recent call last)" in text and "KeyError: 'brief'" in text
+    assert portal.debug_log_path == LOG_NAS
+
+
+async def test_a_failed_bundle_upload_still_completes(tmp_path):
+    portal = FakePortal(log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)), portal=portal, drive=FakeDrive([LOG_NAS]))
+    report = await run_job(deps, edit_claim())
+    assert report.status == "REVIEW" and portal.completed is not None
+    assert "debugLogPath" not in portal.completed
+    assert "couldn't upload the debug bundle: OSError: Drive upload failed (503)" in job_log_text(deps)
+
+
+async def test_a_failed_bundle_upload_still_fails_the_job(tmp_path):
+    portal = FakePortal(log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d, poster=False)), portal=portal,
+                    drive=FakeDrive([LOG_NAS]))
+    report = await run_job(deps, edit_claim())
+    assert report.status == "FAILED" and portal.failed[0] == "The editor finished without a poster frame."
+    assert portal.debug_log_path is None
+
+
+async def test_an_older_portal_gets_no_bundle_upload(tmp_path):
+    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)))
+    await run_job(deps, edit_claim())
+    assert [u[0] for u in deps.drive.uploads] == [OUT_NAS, POSTER_NAS]
+    assert "debugLogPath" not in deps.portal.completed
+    assert "logs/editor.log" in bundle_names(deps)  # still built locally
+    deps2 = deps_for(tmp_path / "other", FakeAgent())
+    await run_job(deps2, fix_claim())  # fails: no job folder on this machine
+    assert deps2.portal.failed[0] == "The edit files were cleaned up; use Redo."
+    assert deps2.portal.debug_log_path is None and deps2.drive.uploads == []
+
+
+async def test_a_cancel_during_the_bundle_upload_cancels_instead_of_completing(tmp_path):
+    cancel = asyncio.Event()
+
+    class CancellingDrive(FakeDrive):
+        async def upload(self, base, path, token, local):
+            await super().upload(base, path, token, local)
+            if path == LOG_NAS:
+                cancel.set()
+
+    portal = FakePortal(log_target=True)
+    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)), portal=portal, drive=CancellingDrive())
+    report = await run_job(deps, edit_claim(), cancel)
+    assert report.status == "CANCELLED" and portal.completed is None
+    assert portal.failed == ("Cancelled by a producer.", True)

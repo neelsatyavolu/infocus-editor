@@ -61,6 +61,7 @@ class UploadTargets:
     drive_base_url: str
     video: UploadTarget
     poster: UploadTarget
+    log: UploadTarget | None = None  # the debug bundle; older Portals don't send it
 
 
 @dataclass(frozen=True)
@@ -202,13 +203,23 @@ class PortalClient:
             drive_base_url=str(data["driveBaseUrl"]).rstrip("/"),
             video=UploadTarget(path=str(data["video"]["path"]), token=str(data["video"]["token"])),
             poster=UploadTarget(path=str(data["poster"]["path"]), token=str(data["poster"]["token"])),
+            log=_optional_target(data.get("log")),
         )
 
     async def complete(self, job_id: str, result: Mapping[str, Any]) -> None:
         await self._post(f"jobs/{job_id}/complete", result)
 
-    async def fail(self, job_id: str, error: str, cancelled: bool = False) -> None:
-        await self._post(f"jobs/{job_id}/fail", {"error": error[:1000], "cancelled": cancelled})
+    async def fail(self, job_id: str, error: str, cancelled: bool = False, debug_log_path: str | None = None) -> None:
+        body: dict[str, Any] = {"error": error[:1000], "cancelled": cancelled}
+        if debug_log_path:
+            body["debugLogPath"] = debug_log_path
+        await self._post(f"jobs/{job_id}/fail", body)
+
+
+def _optional_target(raw: Any) -> UploadTarget | None:
+    if isinstance(raw, dict) and raw.get("path") and raw.get("token"):
+        return UploadTarget(path=str(raw["path"]), token=str(raw["token"]))
+    return None
 
 
 def _message(res: httpx.Response) -> str:

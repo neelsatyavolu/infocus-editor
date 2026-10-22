@@ -243,10 +243,16 @@ class Worker:
             return False
         cancel = asyncio.Event()
         self.busy, self.current = True, (claim.job_id, cancel)
+        started = time.monotonic()
         try:
-            log.info("job %s (%s) for %s", claim.job_id, claim.kind, claim.show_date)
+            log.info("job %s started: %s v%s for %s", claim.job_id, claim.kind, claim.version, claim.show_date)
             report = await self._run_job(claim, cancel)
-            log.info("job %s finished: %s", claim.job_id, getattr(report, "status", report))
+            log.info("job %s finished: %s in %.0f s", claim.job_id, getattr(report, "status", report),
+                     time.monotonic() - started)
+        except BaseException as e:
+            log.error("job %s ended with %s after %.0f s", claim.job_id, e.__class__.__name__,
+                      time.monotonic() - started)
+            raise
         finally:
             self.busy, self.current = False, None
         await self.refresh_health(force=True)

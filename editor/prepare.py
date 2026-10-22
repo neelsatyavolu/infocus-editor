@@ -4,7 +4,9 @@ before any agent runs. Recordings are never joined into one file."""
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -15,6 +17,7 @@ from editor.portal import Claim
 from editor.recordings import Candidate, DetectionError, Detector
 from editor.sources import Source, SourceError, parse_sources
 
+log = logging.getLogger(__name__)
 MIN_SHOW_S = 60
 MAX_SHOW_S = 30 * 60
 
@@ -52,9 +55,19 @@ async def download_all(drive, claim: Claim, paths: JobPaths, sources: tuple[Sour
         else:
             dest = paths.packages / package_local_name(i - len(sources), d.path)
         if dest.is_file() and d.size is not None and dest.stat().st_size == d.size:
+            log.info("download %s: kept from an earlier attempt (%s)", d.path, _mb(d.size))
             continue
+        started = time.monotonic()
         await drive.download(d.url, dest, d.size)
+        seconds = max(time.monotonic() - started, 1e-6)
+        size = dest.stat().st_size if dest.is_file() else 0
+        log.info("download %s -> %s: %s in %.1f s (%.1f MB/s)", d.path, dest, _mb(size), seconds,
+                 size / 1e6 / seconds)
     return local
+
+
+def _mb(size: int | None) -> str:
+    return "? MB" if size is None else f"{size / 1e6:.1f} MB"
 
 
 async def prepare_edit(drive, claim: Claim, paths: JobPaths, run, *, envelope: Callable | None = None,
@@ -64,6 +77,9 @@ async def prepare_edit(drive, claim: Claim, paths: JobPaths, run, *, envelope: C
     except SourceError as e:
         raise JobFailed(str(e)) from e
     paths.root.mkdir(parents=True, exist_ok=True)
+    log.info("precheck: %d source(s) (%d ignored), %d package(s), %d download(s) sent", len(sources),
+             sum(1 for s in sources if s.role == "ignore"), len(claim.brief.get("packages") or []),
+             len(claim.downloads))
     # Files set to Ignore are never downloaded (they're absent from `downloads`); they're only reported.
     wanted = tuple(s for s in sources if s.role != "ignore")
     local = dict(zip(wanted, await download_all(drive, claim, paths, wanted)))
@@ -76,6 +92,8 @@ async def prepare_edit(drive, claim: Claim, paths: JobPaths, run, *, envelope: C
         raise JobFailed(str(e)) from e
     single = len(found.data["recordings"]) == 1 and len(found.data["recordings"][0]["files"]) == 1
     check_length(found.total_s, "This" if single else "Together, the recordings")
+    minutes, secs = divmod(int(found.total_s), 60)
+    log.info("precheck: length %d:%02d is within 1-30 minutes", minutes, secs)
     return Prepared(found.path, found.source, found.decisions, found.needs_review)
 
 

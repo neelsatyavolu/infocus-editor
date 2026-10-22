@@ -10,13 +10,14 @@ import asyncio
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, failure
 from editor.backends.cli import agent_env, parse_json_line, private_dir, read_auth
 from editor.backends.guard import grok_deny_rules
 from editor.backends.proc import ProcessRunner, run_process
 from editor.config import Config
+from editor.joblog import Transcript, clip
 from editor.prompts import instruction
 
 
@@ -75,9 +76,11 @@ class GrokBackend:
         state = _GrokState(session_id)
         task = (f"{prompt}\n\nThe job folder is {job_dir}; the graphics package is in {self._cfg.package_dir}.")
         full_prompt = instruction(self._cfg.repo_root, task, with_rules=True)
-        result = await self._runner(self.command(full_prompt, session_id, bool(resume_id)), env=self.env(),
-                                    cwd=self._cfg.repo_root, on_line=lambda l: state.feed(l, on_event),
-                                    cancel=cancel)
+        with Transcript(job_dir, self.name) as transcript:
+            result = await self._runner(self.command(full_prompt, session_id, bool(resume_id)), env=self.env(),
+                                        cwd=self._cfg.repo_root,
+                                        on_line=lambda l: state.feed(l, on_event, transcript),
+                                        cancel=cancel, on_stderr=transcript.stderr)
         if result.cancelled or cancel.is_set() or state.stop_reason == "cancelled":
             return failure(self.name, state.session_id, "cancelled", cancelled=True)
         ok_stop = state.stop_reason in (None, "end_turn")
@@ -97,10 +100,17 @@ class _GrokState:
         self.stop_reason: str | None = None
         self.cost = 0.0
 
-    def feed(self, line: str, on_event: OnEvent) -> None:
+    def feed(self, line: str, on_event: OnEvent, transcript: Transcript | None = None) -> None:
         event = parse_json_line(line)
+        if transcript is not None and line.strip():
+            if event is None:
+                transcript.event("stdout", {"text": line})
+            else:
+                transcript.line(line)
         if event is None:
             return
+        for summary in grok_summary(event):
+            on_event(summary)
         kind = event.get("type")
         if kind == "end":
             self.session_id = str(event.get("sessionId") or self.session_id)
@@ -109,7 +119,44 @@ class _GrokState:
             self.cost = float(cost) if isinstance(cost, (int, float)) else 0.0
         elif kind == "error":
             self.error = str(event.get("message") or "error")
-        elif kind == "tool_call":
-            on_event(f"tool {event.get('toolName') or event.get('title') or '?'}")
-        elif kind == "text" and str(event.get("data") or "").strip():
-            on_event("say " + str(event["data"]).replace("\n", " ")[:300])
+
+
+_DONE = ("completed", "failed", "error", "cancelled")
+
+
+def grok_summary(event: dict[str, Any]) -> list[str]:
+    """Job-log lines for one `--output-format streaming-json` event (ACP field names):
+    `tool_call` {toolName, title, rawInput} when a tool starts, and the final
+    `tool_call_update` {status, rawOutput, content} when it ends."""
+    kind = event.get("type")
+    if kind == "tool_call":
+        raw = event.get("rawInput")
+        args = raw.get("command") if isinstance(raw, dict) and "command" in raw else raw
+        return [f"tool {event.get('toolName') or event.get('title') or '?'}: {clip(args or '')}"]
+    if kind == "tool_call_update" and event.get("status") in _DONE:
+        out = event.get("rawOutput")
+        code = None
+        if isinstance(out, dict):
+            code = next((out[k] for k in ("exitCode", "exit_code", "exitStatus") if k in out), None)
+            out = next((out[k] for k in ("output", "stdout", "error", "stderr") if out.get(k)), out)
+        text = out if out not in (None, {}, "") else _content_text(event.get("content"))
+        exit_part = f" exit={code}" if code is not None else ""
+        return [f"result {event.get('status')}{exit_part}: {clip(text or '')}"]
+    if kind == "text" and str(event.get("data") or "").strip():
+        return ["say " + clip(str(event["data"]))]
+    if kind == "error":
+        return [f"error: {clip(event.get('message') or '')}"]
+    return []
+
+
+def _content_text(content: Any) -> str:
+    if not isinstance(content, list):
+        return ""
+    parts = []
+    for c in content:
+        inner = c.get("content") if isinstance(c, dict) else None
+        if isinstance(inner, dict) and inner.get("text"):
+            parts.append(str(inner["text"]))
+        elif isinstance(c, dict) and c.get("text"):
+            parts.append(str(c["text"]))
+    return " ".join(parts)

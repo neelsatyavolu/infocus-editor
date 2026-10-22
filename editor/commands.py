@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from editor.logs import MAX_OUTPUT, scrub, tail_log
+from editor.logs import LOG_FILE, MAX_OUTPUT, logs_report, scrub
 from editor.portal import Health
 
 REPAIR_TIMEOUT_S = 45 * 60
@@ -38,11 +38,13 @@ def health_report(health: Health, status_lines: tuple[str, ...] = ()) -> str:
 
 class CommandRunner:
     def __init__(self, repo_dir: Path, data_dir: Path, *, run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-                 log_tail: Callable[[], str] = tail_log):
+                 log_tail: Callable[[], str] | None = None, work_root: Path | None = None,
+                 log_file: Path = LOG_FILE):
         self._repo = repo_dir
         self._data = data_dir
         self._run = run
-        self._log_tail = log_tail
+        # The global log tail, then the tail of the latest job's own log.
+        self._log_tail = log_tail or (lambda: logs_report(log_file, work_root))
 
     def logs(self) -> str:
         return self._log_tail()

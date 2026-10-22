@@ -22,12 +22,13 @@ class ProcResult:
 
 class ProcessRunner(Protocol):
     async def __call__(self, cmd: Sequence[str], *, env: Mapping[str, str], cwd: Path,
-                       on_line: Callable[[str], None], cancel: asyncio.Event) -> ProcResult: ...
+                       on_line: Callable[[str], None], cancel: asyncio.Event,
+                       on_stderr: Callable[[str], None] | None = None) -> ProcResult: ...
 
 
 async def run_process(cmd: Sequence[str], *, env: Mapping[str, str], cwd: Path,
                       on_line: Callable[[str], None], cancel: asyncio.Event,
-                      grace_s: float = 10.0) -> ProcResult:
+                      on_stderr: Callable[[str], None] | None = None, grace_s: float = 10.0) -> ProcResult:
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(cwd), env=dict(env), stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -43,7 +44,10 @@ async def run_process(cmd: Sequence[str], *, env: Mapping[str, str], cwd: Path,
     async def read_stderr() -> None:
         assert proc.stderr is not None
         async for raw in proc.stderr:
-            stderr_chunks.append(raw.decode("utf-8", "replace"))
+            text = raw.decode("utf-8", "replace")
+            if on_stderr is not None:
+                on_stderr(text)
+            stderr_chunks.append(text)
             while sum(len(c) for c in stderr_chunks) > STDERR_TAIL and len(stderr_chunks) > 1:
                 stderr_chunks.pop(0)
 

@@ -5,16 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 from editor.backends import session_ref
 from editor.config import Config
+from editor.debugbundle import build_bundle
 from editor.housekeeping import kill_job_processes
-from editor.jobfiles import MAX_HOUSE_RULES, build_brief, job_paths, write_house_rules, write_json_atomic
+from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, job_paths, read_json, write_house_rules,
+                             write_json_atomic)
+from editor.joblog import describe_claim, describe_payload, describe_recordings, job_log
 from editor.media import MediaError, probe
-from editor.portal import AuthError, Claim
+from editor.portal import AuthError, Claim, UploadTarget, UploadTargets
 from editor.power import job_awake
 from editor.prepare import JobFailed, Prepared, prepare_edit, read_prepared, touch
 from editor.progress import Reporter
@@ -25,6 +29,7 @@ from editor.verify import Verdict, run_verify
 log = logging.getLogger(__name__)
 MIN_RENDER_S = 120
 MAX_RENDER_S = 15 * 60
+BUNDLE_TIMEOUT_S = 5 * 60
 
 
 @dataclass(frozen=True)
@@ -50,7 +55,9 @@ class JobReport:
 
 
 async def run_job(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event | None = None) -> JobReport:
-    with job_awake(deps.cfg.machine_kind, deps.popen):
+    with job_log(job_paths(deps.cfg, claim).root, claim.kind, claim.version), \
+            job_awake(deps.cfg.machine_kind, deps.popen):
+        log.info("%s", describe_claim(claim))
         return await _run_job(deps, claim, cancel)
 
 
@@ -59,16 +66,20 @@ async def _run_job(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event | None)
     reporter = Reporter(deps.portal, claim.job_id, cancel)
     limit = deps.cfg.run_timeout_minutes
     try:
-        payload = await asyncio.wait_for(_run(deps, claim, cancel, reporter), timeout=limit * 60)
-        return JobReport("REVIEW", payload=payload)
+        payload, targets = await asyncio.wait_for(_run(deps, claim, cancel, reporter), timeout=limit * 60)
+        # Outside the time limit: an edit that's uploaded never fails because the debug bundle was slow.
+        return JobReport("REVIEW", payload=await _complete(deps, claim, payload, targets, cancel))
     except asyncio.TimeoutError:
+        log.error("timed out: the %s-minute limit ran out at the %s step", limit, reporter.stage)
         return await _end(deps, claim, f"The edit took longer than {limit} minutes and was stopped "
                                        f"at the {reporter.stage} step.", sweep=True)
     except JobCancelled:
+        log.warning("cancelled by a producer at the %s step", reporter.stage)
         return await _end(deps, claim, "Cancelled by a producer.", cancelled=True, sweep=True)
     except JobFailed as e:
         return await _end(deps, claim, str(e))
     except AuthError:
+        log.error("the Portal rejected the editor token; the job stops without reporting")
         raise
     except Exception as e:  # noqa: BLE001 - every other failure still reaches the Portal
         log.exception("job %s crashed", claim.job_id)
@@ -83,8 +94,11 @@ async def _end(deps: RunnerDeps, claim: Claim, message: str, *, cancelled: bool 
             await asyncio.to_thread(deps.sweep, job_paths(deps.cfg, claim).root)
         except Exception as e:  # noqa: BLE001
             log.warning("couldn't stop leftover job processes: %s", e)
+    log.info("failing the job (cancelled=%s): %s", cancelled, message)
+    debug_path = await _send_bundle(deps, claim)
     try:
-        await deps.portal.fail(claim.job_id, message, cancelled=cancelled)
+        await deps.portal.fail(claim.job_id, message, cancelled=cancelled, debug_log_path=debug_path)
+        log.info("fail sent, debugLogPath %s", debug_path or "none")
     except AuthError:
         raise
     except Exception as e:  # noqa: BLE001 - the Portal will requeue a stale job anyway
@@ -92,13 +106,44 @@ async def _end(deps: RunnerDeps, claim: Claim, message: str, *, cancelled: bool 
     return JobReport("CANCELLED" if cancelled else "FAILED", message)
 
 
-async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: Reporter) -> dict[str, Any]:
+async def _send_bundle(deps: RunnerDeps, claim: Claim, targets: UploadTargets | None = None) -> str | None:
+    """Build the debug bundle and upload it to the Portal's log target, within BUNDLE_TIMEOUT_S.
+    Returns its NAS path, or None (no log target on an older Portal, or any failure)."""
+    try:
+        return await asyncio.wait_for(_bundle_and_upload(deps, claim, targets), BUNDLE_TIMEOUT_S)
+    except Exception as e:  # noqa: BLE001 - the job still completes or fails without it
+        log.warning("couldn't upload the debug bundle: %s: %s", e.__class__.__name__, e)
+        return None
+
+
+async def _bundle_and_upload(deps: RunnerDeps, claim: Claim, targets: UploadTargets | None) -> str | None:
+    bundle = await asyncio.to_thread(build_bundle, job_paths(deps.cfg, claim).root, claim.version)
+    if targets is None:
+        targets = await deps.portal.upload_targets(claim.job_id)
+    if targets.log is None:
+        log.info("the Portal has no debug log target (older Portal); the bundle stays at %s", bundle)
+        return None
+    await _upload(deps, targets.drive_base_url, targets.log, bundle)
+    return targets.log.path
+
+
+async def _upload(deps: RunnerDeps, base_url: str, target: UploadTarget, local: Path) -> None:
+    size = local.stat().st_size
+    started = time.monotonic()
+    await deps.drive.upload(base_url, target.path, target.token, local)
+    log.info("upload %s -> %s: %.1f MB in %.1f s", local, target.path, size / 1e6, time.monotonic() - started)
+
+
+async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: Reporter
+               ) -> tuple[dict[str, Any], UploadTargets]:
+    """Everything up to and including the uploads; returns the completion payload."""
     cfg = deps.cfg
     paths = job_paths(cfg, claim)
     if claim.kind == "fix":
         prepared = read_prepared(paths) if paths.root.is_dir() else None
         if prepared is None:
             raise JobFailed("The edit files were cleaned up; use Redo.")
+        log.info("precheck: the fix reuses %s (recordings %s)", paths.root, prepared.recordings)
         touch(paths.root)
         await reporter.report("fix", f"Applying the fix for v{claim.version}")
     else:
@@ -106,6 +151,7 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
         prepared = await prepare_edit(deps.drive, claim, paths, deps.run, envelope=deps.envelope,
                                       profile=deps.profile or profile_with_skill(cfg.skill_dir / "scripts",
                                                                                  cfg.package_dir, deps.run))
+        _log_prepared(prepared)
     if cancel.is_set():
         raise JobCancelled()
 
@@ -114,6 +160,7 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     write_house_rules(cfg, claim, paths)
     brief = build_brief(cfg, claim, paths, prepared.recordings, prepared.source)
     write_json_atomic(paths.brief, brief)
+    log.info("brief.json written: %s (%s v%s, output %s)", paths.brief, claim.kind, claim.version, brief["output"])
 
     sessions = await run_sessions(deps, claim, paths, brief, cancel, reporter)
     result = sessions.result
@@ -131,12 +178,33 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     targets = await deps.portal.upload_targets(claim.job_id)
     if targets.video.path != payload["outputNasPath"]:
         raise JobFailed("The Portal gave an upload path that doesn't match the job.")
-    await deps.drive.upload(targets.drive_base_url, targets.video.path, targets.video.token, output)
-    await deps.drive.upload(targets.drive_base_url, targets.poster.path, targets.poster.token, poster)
+    await _upload(deps, targets.drive_base_url, targets.video, output)
+    await _upload(deps, targets.drive_base_url, targets.poster, poster)
+    return payload, targets
+
+
+async def _complete(deps: RunnerDeps, claim: Claim, payload: dict[str, Any], targets: UploadTargets,
+                    cancel: asyncio.Event) -> dict[str, Any]:
     if cancel.is_set():
         raise JobCancelled()
+    log.info("completing: %s", describe_payload(payload))
+    debug_path = await _send_bundle(deps, claim, targets)
+    if cancel.is_set():  # a cancel that arrived while the bundle went up
+        raise JobCancelled()
+    if debug_path:
+        payload = {**payload, "debugLogPath": debug_path}
     await deps.portal.complete(claim.job_id, payload)
+    log.info("complete sent, debugLogPath %s", debug_path or "none")
     return payload
+
+
+def _log_prepared(prepared: Prepared) -> None:
+    for line in describe_recordings(read_json(prepared.recordings) or {}):
+        log.info("%s", line)
+    for d in prepared.decisions:
+        log.info("detection: %s%s: %s", d.get("kind"), " (flagged)" if d.get("flagged") else "", d.get("detail"))
+    if prepared.needs_review:
+        log.info("detection: the edit will need review")
 
 
 def check_output(output: Path, poster: Path, run=subprocess.run) -> None:
@@ -146,6 +214,9 @@ def check_output(output: Path, poster: Path, run=subprocess.run) -> None:
         info = probe(output, run)
     except MediaError as e:
         raise JobFailed(f"The render can't be read: {e}") from e
+    log.info("output check: %s: %.1f s, video %s %dx%d, audio %s, poster %s", output, info.duration,
+             info.video_codec or "none", info.width, info.height, info.audio_codec or "none",
+             "present" if poster.is_file() else "missing")
     if not info.has_video:
         raise JobFailed("The render has no video track.")
     if not info.has_audio:
