@@ -64,6 +64,7 @@ The step ids are `admin clt homebrew tools ai model app package service health`,
 `setup-app/build.sh` builds the SwiftUI app with `swiftc`/SwiftPM (macOS 13+, arm64). It copies the resources in and signs with hardened runtime using the Developer ID from `~/Documents/GitHub/APPLE_SIGNING.md` (temp keychain plus the G2 intermediate, using the shared loader). Every nested executable and script is signed. Then it builds a DMG, notarizes it with `notarytool`, staples it and checks it with `spctl`.
 - `--sign` signs without notarizing.
 - `--release` signs, notarizes and staples.
+- **Sharing it:** upload the built DMG to the Drive at `Package Storage/Editor/InFocus Editor Setup.dmg`, replacing the old one. The Portal's **Download the setup app** button (Editing → Machines) serves that file to producers only. Never attach it to a GitHub release: it bundles the graphics package, whose working files carry real names.
 - No flag gives an unsigned local build.
 
 Secrets come only from 1Password at build time and are never written into the repo.
