@@ -309,6 +309,21 @@ async def test_update_restart_and_repair_wait_until_idle():
     assert sent == [{"id": "k3", "ok": True, "output": "==> Video tools ready\n@@done"}]
 
 
+async def test_a_command_handed_over_as_the_editor_restarts_is_answered_not_lost():
+    # The 10-22 case: Update now arrived in the heartbeat that delivered Repair's ack, then the editor restarted.
+    portal = FakePortal(commands=[Command("r1", "repair")])
+    w = worker(portal, lambda c, e: None, commands=FakeCommands())
+    await w.heartbeat_once()
+    portal.commands = [Command("u1", "update")]          # handed over by the exit heartbeat
+    try:
+        await w.run_queued_commands()
+    except RestartRequested:
+        pass
+    sent = {a["id"]: a for body in portal.bodies for a in body["commandAcks"]}
+    assert sent["r1"]["ok"] is True
+    assert sent["u1"]["ok"] is False and "Not run" in sent["u1"]["output"]
+
+
 async def test_restart_command_acks_then_exits_for_launchd():
     portal = FakePortal(commands=[Command("k4", "restart")])
     exits = []

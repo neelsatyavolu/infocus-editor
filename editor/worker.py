@@ -229,9 +229,19 @@ class Worker:
         self.update_problem = result.problem or self.update_problem
         self._ack(command, result.status == "current", result.message or f"Already on {self._version}.")
 
+    NOT_RUN = "Not run: the editor restarted first (after a repair, restart or update). Send it again if it's still needed."
+
     async def _exit_after_ack(self, exc: Exception) -> None:
-        with contextlib.suppress(Exception):
-            await self.heartbeat_once()  # deliver the ack before going away
+        # Deliver the acks before going away. Commands still queued would be lost with this process (the Portal
+        # never hands a command over twice), so answer them as not run; a heartbeat can bring new ones, so repeat.
+        for _ in range(3):
+            for command in self._queued:
+                self._ack(command, False, self.NOT_RUN)
+            self._queued.clear()
+            with contextlib.suppress(Exception):
+                await self.heartbeat_once()
+            if not self._queued and not self._command_acks:
+                break
         with contextlib.suppress(Exception):
             self._before_exit()
         raise exc
@@ -246,9 +256,7 @@ class Worker:
         result = await asyncio.to_thread(self._update, self.target_version, self.health.problems)
         log.info("update check: %s %s", result.status, result.message)
         if result.status == "updated":
-            with contextlib.suppress(Exception):
-                self._before_exit()
-            raise RestartForUpdate(result.message)
+            await self._exit_after_ack(RestartForUpdate(result.message))
         if result.status in ("current", "rolled_back", "refused"):
             self.update_problem = result.problem
 
