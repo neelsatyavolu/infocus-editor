@@ -72,4 +72,4 @@ def test_no_resolve_checks_remain(tmp_path):
 
 
 def test_helper_version_reads_the_repo_copy():
-    assert helper_version(REPO_ROOT / "install" / "infocus-root") == "1"
+    assert helper_version(REPO_ROOT / "install" / "infocus-root") == "2"

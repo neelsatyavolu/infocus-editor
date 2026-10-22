@@ -46,4 +46,4 @@ def test_helper_versions_parse_the_same_in_shell_and_python():
     from editor.doctor import helper_version
 
     out = lib(f'helper_version_of "{REPO_ROOT}/install/infocus-root"')
-    assert out.stdout.strip() == helper_version(REPO_ROOT / "install" / "infocus-root") == "1"
+    assert out.stdout.strip() == helper_version(REPO_ROOT / "install" / "infocus-root") == "2"
