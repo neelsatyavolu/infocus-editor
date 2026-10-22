@@ -237,7 +237,20 @@ service() {
   render_plist > "$dest"
   plutil -lint "$dest" >/dev/null || die "The background service definition is invalid."
   launchctl bootout "$domain/$LABEL" 2>/dev/null || true
-  launchctl bootstrap "$domain" "$dest" || die "macOS wouldn't start the background service."
+  # bootout returns before launchd has finished unloading the old service, and bootstrapping too soon fails with
+  # "Bootstrap failed: 5: Input/output error" (seen on a Repair). Wait for it to go, then retry a few times.
+  local i
+  for i in $(seq 1 20); do
+    launchctl print "$domain/$LABEL" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  for i in 1 2 3 4 5; do
+    launchctl bootstrap "$domain" "$dest" 2>/dev/null && break
+    if [ "$i" = 5 ]; then
+      launchctl print "$domain/$LABEL" >/dev/null 2>&1 || die "macOS wouldn't start the background service."
+    fi
+    sleep 2
+  done
   launchctl kickstart -k "$domain/$LABEL" || true
   step service "done" "Running"
 }

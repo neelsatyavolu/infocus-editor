@@ -80,8 +80,19 @@ def sandbox(tmp_path):
         esac
         exit 0
     ''')
-    for name in ("npm", "npx", "node", "launchctl", "security", "curl", "xcode-select"):
+    for name in ("npm", "npx", "node", "security", "curl", "xcode-select"):
         script(fake / name, f'echo "{name} $*" >> "{log}"\n')
+    # launchd: nothing loaded (print fails); FAKE_BOOTSTRAP_FAILS=n makes the first n bootstraps fail with EIO.
+    script(fake / "launchctl", f'''
+        echo "launchctl $*" >> "{log}"
+        case "$1" in
+          print) exit 1 ;;
+          bootstrap)
+            n=$(( $(cat "{tmp_path}/bootstraps" 2>/dev/null || echo 0) + 1 )); echo "$n" > "{tmp_path}/bootstraps"
+            [ "$n" -le "${{FAKE_BOOTSTRAP_FAILS:-0}}" ] && {{ echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; }} ;;
+        esac
+        exit 0
+    ''')
     env = {
         "HOME": str(home),
         "PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -271,3 +282,11 @@ def test_a_stalled_speech_model_download_is_retried_and_resumed(sandbox):
     calls = [l for l in sandbox["log"].read_text().splitlines() if "ggml-large-v3-turbo" in l]
     assert len(calls) == 2 and all("--speed-limit" in c and "--continue-at -" in c for c in calls)
     assert "try 1 stopped" in proc.stderr
+
+
+def test_a_slow_launchd_unload_is_retried_instead_of_failing_setup(sandbox):
+    proc, lines = install(sandbox, env={"FAKE_BOOTSTRAP_FAILS": "2"})
+    assert proc.returncode == 0, proc.stderr
+    assert ("service", "done") in steps(lines)
+    bootstraps = [l for l in sandbox["log"].read_text().splitlines() if l.startswith("launchctl bootstrap")]
+    assert len(bootstraps) == 3
