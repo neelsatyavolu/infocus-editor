@@ -1,7 +1,9 @@
 import asyncio
+import subprocess
 
 from editor import main as main_mod
 from editor.main import EXIT_AUTH, LoopSettings, Worker
+from editor.commands import CommandRunner
 from editor.portal import AuthError, Claim, Command, HeartbeatReply, Health
 from editor.service import EXIT_RESTART
 from editor.worker import STANDBY, UNLINKED, RestartRequested
@@ -239,6 +241,9 @@ class FakeCommands:
         self.repaired += 1
         return self.repair_ok, "==> Video tools ready\n@@done"
 
+    def set_power(self, kind):
+        return True, f"set {kind}"
+
 
 async def test_doctor_and_logs_run_even_mid_job_and_are_acked_next_heartbeat():
     portal = FakePortal(commands=[Command("k1", "doctor"), Command("k2", "logs")], active=False)
@@ -250,6 +255,38 @@ async def test_doctor_and_logs_run_even_mid_job_and_are_acked_next_heartbeat():
     assert [a["id"] for a in acks] == ["k1", "k2"] and all(a["ok"] for a in acks)
     assert STANDBY in acks[0]["output"] and "Healthy" in acks[0]["output"]
     assert "job j1 finished" in acks[1]["output"]
+
+
+async def test_power_commands_run_even_mid_job():
+    portal = FakePortal(commands=[Command("p1", "always-on"), Command("p2", "normal-power")], active=False)
+    w = worker(portal, lambda c, e: None, commands=FakeCommands())
+    w.busy = True
+    await w.heartbeat_once()
+    await w.heartbeat_once()
+    acks = portal.bodies[1]["commandAcks"]
+    assert [(a["id"], a["output"]) for a in acks] == [("p1", "set always-on"), ("p2", "set normal-power")]
+
+
+def test_set_power_runs_only_the_root_helper_and_reports_the_state(tmp_path):
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "always_on=on\nauto_logout_s=0\n", "")
+
+    ok, out = CommandRunner(tmp_path, tmp_path, run=run).set_power("always-on")
+    assert ok and "won't sleep" in out and "sleep disabled: on" in out
+    assert calls == [["/usr/bin/sudo", "-n", "/Library/InFocusEditor/bin/infocus-root", "always-on", "on"]]
+    ok, out = CommandRunner(tmp_path, tmp_path, run=run).set_power("normal-power")
+    assert ok and calls[-1][-1] == "off"
+
+
+def test_set_power_explains_a_refused_helper(tmp_path):
+    def run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, "", "sudo: a password is required")
+
+    ok, out = CommandRunner(tmp_path, tmp_path, run=run).set_power("always-on")
+    assert not ok and "Repair" in out and "password is required" in out
 
 
 async def test_update_restart_and_repair_wait_until_idle():
@@ -369,7 +406,6 @@ def test_logs_are_tailed_and_scrubbed(tmp_path):
 
 
 def test_logs_command_appends_the_latest_job_log(tmp_path):
-    from editor.commands import CommandRunner
 
     global_log = tmp_path / "infocus-editor.log"
     global_log.write_text("2026-10-21 INFO editor: job j1 started: edit v1 for 2026-10-21\n")

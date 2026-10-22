@@ -5,14 +5,15 @@
 # an admin to approve install.sh again.
 #
 #   infocus-root status
-#   infocus-root apply-power
+#   infocus-root apply-power          (= always-on on; a dedicated Mac's setup)
+#   infocus-root always-on on|off
 #   infocus-root update-clt
 #
 # INFOCUS_ROOT_DRY_RUN=1 (honoured only when not root) validates and prints
 # what would run, so tests can exercise the checks without root.
 set -euo pipefail
 
-HELPER_VERSION=1
+HELPER_VERSION=2
 
 if [ "$(id -u)" -eq 0 ]; then
   DRY_RUN=0
@@ -28,7 +29,7 @@ else
 fi
 
 usage() {
-  echo "usage: infocus-root status | apply-power | update-clt" >&2
+  echo "usage: infocus-root status | apply-power | always-on on|off | update-clt" >&2
   exit 2
 }
 
@@ -45,11 +46,39 @@ cmd_status() {
   clt=$(pkgutil --pkg-info com.apple.pkg.CLTools_Executables 2>/dev/null | awk '/^version:/ {print $2}' || true)
   echo "clt_version=${clt:-missing}"
   pmset -g custom 2>/dev/null | awk '/AC Power/ {ac=1} ac && /^ *(sleep|autorestart|womp) / {print "ac_" $1 "=" $2}' || true
+  power_state
+}
+
+AUTOLOGOUT_PLIST=/Library/Preferences/.GlobalPreferences
+UPDATES_PLIST=/Library/Preferences/com.apple.SoftwareUpdate
+
+power_state() {
+  echo "always_on=$(pmset -g 2>/dev/null | awk '/SleepDisabled/ {print ($2 == 1 ? "on" : "off"); f=1} END {if (!f) print "off"}')"
+  echo "auto_logout_s=$(defaults read "$AUTOLOGOUT_PLIST" com.apple.autologout.AutoLogOutDelay 2>/dev/null || echo 0)"
+  echo "auto_macos_updates=$(defaults read "$UPDATES_PLIST" AutomaticallyInstallMacOSUpdates 2>/dev/null || echo default)"
+}
+
+cmd_always_on() {
+  case "$1" in
+    on)
+      # Never sleep, on the adapter or the battery, with the lid open or closed; restart after a power cut.
+      run pmset -a sleep 0 disksleep 0 standby 0 disablesleep 1 autorestart 1 womp 1
+      # Nothing logs the account out, and macOS never installs an update that restarts the Mac by itself.
+      run defaults write "$AUTOLOGOUT_PLIST" com.apple.autologout.AutoLogOutDelay -int 0
+      run defaults write "$UPDATES_PLIST" AutomaticallyInstallMacOSUpdates -bool false
+      ;;
+    off)
+      # Back to macOS's own sleep settings and update behaviour (auto-logout stays off: that's macOS's default).
+      run pmset -a disablesleep 0
+      run pmset restoredefaults
+      run defaults delete "$UPDATES_PLIST" AutomaticallyInstallMacOSUpdates 2>/dev/null || true
+      ;;
+  esac
+  if [ "$DRY_RUN" != "1" ]; then power_state; fi
 }
 
 cmd_apply_power() {
-  # Never sleep on the power adapter, restart after a power cut, wake for network.
-  run pmset -c sleep 0 disksleep 0 autorestart 1 womp 1
+  cmd_always_on on
 }
 
 cmd_update_clt() {
@@ -66,6 +95,8 @@ cmd_update_clt() {
 case "$1" in
   status)      [ $# -eq 1 ] || usage; cmd_status ;;
   apply-power) [ $# -eq 1 ] || usage; cmd_apply_power ;;
+  always-on)   [ $# -eq 2 ] || usage
+               case "$2" in on|off) cmd_always_on "$2" ;; *) usage ;; esac ;;
   update-clt)  [ $# -eq 1 ] || usage; cmd_update_clt ;;
   *) usage ;;
 esac

@@ -151,7 +151,7 @@ Everything after setup is managed from the Portal panel by producers. Nothing is
   - The env vars `SHOW_EDITOR_AUTO_START`, `SHOW_EDITOR_AUTO_PUBLISH` and `SHOW_EDITOR_TARGET_VERSION` are used only when the matching setting is null.
 - **The heartbeat response adds:**
   - `settings: { agentOrder: string[], targetVersion: string | null }`. `targetVersion` also stays top-level.
-  - `commands: [{ id, kind: "doctor" | "update" | "restart" | "repair" | "logs" }]`, which producers queue with `POST /api/show-roles/edits { action: "command", kind }`.
+  - `commands: [{ id, kind: "doctor" | "update" | "restart" | "repair" | "logs" | "always-on" | "normal-power" }]` (doctor, logs and the two power commands run even mid-job), which producers queue with `POST /api/show-roles/edits { action: "command", kind }`.
 - **The heartbeat body adds** `commandAcks: [{ id, ok: boolean, output?: string≤4000 }]` (≤10).
   - For `logs`, `output` is the last 100 log lines, with secrets never included. For `doctor`, it's the health report.
   - The panel shows each command's result.

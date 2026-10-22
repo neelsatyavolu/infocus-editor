@@ -169,6 +169,9 @@ class Worker:
             self._ack(command, True, health_report(self.reported_health(), self.status_lines()))
         elif command.kind == "logs" and self._commands is not None:
             self._ack(command, True, await asyncio.to_thread(self._commands.logs))
+        elif command.kind in ("always-on", "normal-power") and self._commands is not None:
+            ok, output = await asyncio.to_thread(self._commands.set_power, command.kind)
+            self._ack(command, ok, output)
         else:
             self._ack(command, False, "This editor can't run that command.")
 

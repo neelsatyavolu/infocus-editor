@@ -135,7 +135,8 @@ The helper (`install/infocus-root`) has a fixed allowlist and strict argument ch
 | Command | What it does |
 |---|---|
 | `sudo infocus-root status` | Helper version, Command Line Tools version, power settings |
-| `sudo infocus-root apply-power` | Re-applies the fixed power settings |
+| `sudo infocus-root apply-power` | Always on (a dedicated Mac's setup): the same as `always-on on` |
+| `sudo infocus-root always-on on\|off` | On: never sleeps (lid closed or open, adapter or battery), restarts after a power cut, no auto-logout, no macOS update restarts. Off: macOS's own settings. The Portal's Always on / Normal power commands run it |
 | `sudo infocus-root update-clt` | Installs a Command Line Tools update, and nothing else |
 
 There is no blanket admin and no general passwordless `sudo`. The editing agents are also blocked from:
