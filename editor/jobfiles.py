@@ -90,6 +90,8 @@ def build_brief(cfg: Config, claim: Claim, paths: JobPaths, recordings: Path, so
         "source": str(source) if source else None,
         "anchors": list(b.get("anchors") or []),
         "announcements": list(b.get("announcements") or []),
+        "pastCards": list(b.get("pastCards") or []),
+        "roster": list(b.get("roster") or []),
         "packages": packages,
         "note": b.get("note"),
         "fix": fix,
@@ -120,6 +122,23 @@ def write_json_atomic(path: Path, data: Mapping[str, Any]) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(json.dumps(data, indent=2))
     os.replace(tmp, path)
+
+
+def edl_cards(edl_path: Path, announcements: list[str]) -> list[dict[str, Any]]:
+    """The announcement cards of a finished edit, for the Portal to offer later edits as examples.
+    A card's `script` is the index of the brief announcement it was written from, if the skill set one."""
+    edl = read_json(edl_path) or {}
+    cards = []
+    for seg in edl.get("segments") or []:
+        card = seg.get("card") if isinstance(seg, dict) else None
+        if not isinstance(card, dict) or not str(card.get("title") or "").strip():
+            continue
+        index = card.get("script")
+        script = announcements[index] if isinstance(index, int) and 0 <= index < len(announcements) else None
+        cards.append({"title": str(card["title"]).replace("|", " ")[:120],
+                      "points": [str(p)[:160] for p in card.get("points") or []][:6],
+                      "script": script[:1500] if script else None})
+    return cards
 
 
 def read_json(path: Path) -> dict[str, Any] | None:

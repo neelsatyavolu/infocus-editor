@@ -170,6 +170,7 @@ A dev checkout (anything other than `<data dir>/app`) never updates itself, unle
   2. runs the tests that need no private fixtures or AI account
   3. commits "release v0.3.0" and creates an annotated tag (signed if `git config user.signingkey` is set)
   4. pushes the commit and tag, then runs `gh release create v0.3.0 --generate-notes`
+  5. attaches the notarized `setup-app/dist/InFocus Editor Setup.dmg` as `InFocus-Editor-Setup.dmg`, which the Portal's Machines view links to (`releases/latest/download/InFocus-Editor-Setup.dmg`)
 - **Rollout:** every editor picks the release up within about 15 minutes. The Portal pin and the automatic rollback still apply.
 - **CI:** `.github/workflows/checks.yml` runs those same tests and shellcheck on every push and pull request (macOS, uv).
 

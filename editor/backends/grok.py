@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, failure
+from editor.backends.base import EFFORT, AgentOutcome, BackendStatus, OnEvent, failure
 from editor.backends.cli import agent_env, parse_json_line, private_dir, read_auth
 from editor.backends.guard import grok_deny_rules
 from editor.backends.proc import ProcessRunner, run_process
@@ -60,7 +60,7 @@ class GrokBackend:
     def command(self, prompt: str, session_id: str, resume: bool) -> list[str]:
         cmd = [self._bin, "-p", prompt, "--output-format", "streaming-json", "--cwd", str(self._cfg.repo_root),
                "--permission-mode", "bypassPermissions", "--max-turns", str(self._cfg.max_turns),
-               "--disable-web-search"]
+               "--disable-web-search", "--reasoning-effort", EFFORT]
         cmd += ["--resume", session_id] if resume else ["-s", session_id]
         for rule in grok_deny_rules():
             cmd += ["--deny", rule]

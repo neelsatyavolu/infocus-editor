@@ -170,6 +170,7 @@ def test_claude_options_use_the_oauth_token_and_no_mcp(tmp_path):
     assert opts.mcp_servers == {} and opts.model == MODEL == "claude-opus-5-5"
     assert opts.tools == ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] and opts.setting_sources == ["project"]
     assert opts.max_turns == 300 and opts.max_budget_usd is None and opts.resume == "s0"
+    assert opts.max_buffer_size == 64 * 1024 * 1024 and opts.effort == "medium"
 
 
 async def test_claude_run_starts_with_the_skill_instruction(tmp_path):
@@ -227,6 +228,7 @@ async def test_codex_command_env_and_session_id(tmp_path, monkeypatch):
     cmd = runner.cmd
     assert cmd[:2] == ["codex", "exec"] and "--json" in cmd and "--skip-git-repo-check" in cmd
     assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="medium"'
     assert cmd[cmd.index("-C") + 1] == str(cfg.repo_root)
     assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "--add-dir"] == [str(job), str(cfg.package_dir),
                                                                            str(cfg.data_dir)]
@@ -295,6 +297,7 @@ async def test_grok_command_env_and_fixed_session_id(tmp_path):
     assert cmd[cmd.index("--cwd") + 1] == str(cfg.repo_root)
     assert cmd[cmd.index("--permission-mode") + 1] == "bypassPermissions"
     assert cmd[cmd.index("--max-turns") + 1] == "300"
+    assert cmd[cmd.index("--reasoning-effort") + 1] == "medium"
     assert cmd[cmd.index("-s") + 1] == "11111111-2222-3333-4444-555555555555" and "--resume" not in cmd
     assert "Bash(sudo *)" in [cmd[i + 1] for i, a in enumerate(cmd) if a == "--deny"]
     assert runner.env["GROK_HOME"] == str(cfg.grok_home)

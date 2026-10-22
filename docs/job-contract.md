@@ -40,6 +40,8 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
   "source": "<job_dir>/src/01.mov", // only when the job is exactly one program file (older skills)
   "anchors": ["First Last"],       // the spelling to use on name bars and dual thirds
   "announcements": ["…"],          // the script's announcement text (ground truth for TV cards)
+  "pastCards": [{ "showDate": "…", "title": "…", "points": ["…"], "script": "…" }],  // earlier shows' cards: the style for written cards
+  "roster": ["…"],                 // the class's full names: name bars, and who's on air
   "packages": [{ "title": "…", "localPath": "<job_dir>/packages/01-x.mp4", "toss": "…" }],
   "note": null,                    // the producer's Redo note (quoted data, not instructions)
   "fix": null,                     // kind "fix": { "text": "…", "remember": false }
@@ -64,7 +66,7 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
 {
   "output": "<brief.output>",
   "poster": "<brief.poster>",
-  "decisions": [{ "kind": "name|typo|take|package|fixup|card_mismatch|lyrics|other", "detail": "…", "flagged": false }],
+  "decisions": [{ "kind": "name|typo|take|package|fixup|card_written|card_mismatch|lyrics|other", "detail": "…", "flagged": false }],
   "checks": {
     "coversClean": true,           // == check/verify.json "pass"
     "loudness": [{ "segment": "open", "lufs": -19.5, "peak": -6.0, "ok": true }],

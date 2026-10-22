@@ -10,6 +10,11 @@ from typing import Callable, Protocol
 
 OnEvent = Callable[[str], None]
 
+# Reasoning effort for every backend, pinned so a CLI update can't change it. Most of an edit's tokens are re-reads
+# of the conversation (cache reads), which cost the same on a smaller model, so effort is what moves the price;
+# medium is Opus 5.5's own default and leaves room for judging takes and writing cards.
+EFFORT = "medium"
+
 LIMIT_RE = re.compile(
     r"usage[ _]limit|rate[ _]limit|quota|too many requests|\b429\b|limit reached|hit your .*limit|"
     r"out of (?:credits|messages)|insufficient[_ ]quota",

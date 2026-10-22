@@ -215,6 +215,27 @@ async def test_happy_path_uploads_to_the_brief_paths_and_completes(tmp_path):
     assert Path(brief["source"]).name == "01.mov" and Path(brief["recordings"]).name == "recordings.json"
 
 
+async def test_cards_go_to_the_portal_and_past_cards_reach_the_brief(tmp_path):
+    def finish_with_cards(job_dir, cancel):
+        write_json_atomic(job_dir / "show" / "edl.json", {"segments": [
+            {"id": "open", "kind": "source"},
+            {"id": "fair", "kind": "source", "card": {"title": "Club|Fair", "points": ["Friday", "Quad"], "script": 0}},
+            {"id": "pies", "kind": "source", "card": {"title": "Pie Sale", "points": ["$25"], "script": 9}}]})
+        finish(job_dir)
+
+    claim = edit_claim()
+    past = [{"showDate": "2026-10-06", "title": "College Fair", "points": ["Monday"], "script": None}]
+    claim = Claim(claim.kind, claim.job_id, claim.show_date, claim.version, {**claim.brief, "pastCards": past},
+                  claim.downloads)
+    deps = deps_for(tmp_path, FakeAgent(finish_with_cards))
+    await run_job(deps, claim)
+    assert deps.portal.completed["checks"]["cards"] == [
+        {"title": "Club Fair", "points": ["Friday", "Quad"], "script": "Club fair Friday"},
+        {"title": "Pie Sale", "points": ["$25"], "script": None}]
+    brief = json.loads((deps.cfg.work_root / f"{DATE}-j1" / "brief.json").read_text())
+    assert brief["pastCards"] == past
+
+
 async def test_status_json_changes_are_forwarded_once_each(tmp_path):
     async def step(job_dir, cancel):
         for stage, msg in [("analyze", "Analyzing"), ("analyze", "Analyzing"), ("render", "Rendering")]:

@@ -24,7 +24,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, classify, failure
+from editor.backends.base import EFFORT, AgentOutcome, BackendStatus, OnEvent, classify, failure
 from editor.backends.guard import bash_denied, write_denied
 from editor.config import Config
 from editor.joblog import Transcript, clip
@@ -35,6 +35,9 @@ TOKEN_ITEM = "claude_oauth_token"
 TOKEN_RE = re.compile(r"^sk-ant-oat01-[A-Za-z0-9_-]{40,}$")
 TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep")
 _WRITE_TOOLS = ("Write", "Edit", "NotebookEdit")
+# The SDK's default 1 MB cap per CLI message is smaller than a Read of one full-size contact sheet, and going over it
+# kills the session ("JSON message exceeded maximum buffer size").
+MAX_BUFFER_BYTES = 64 * 1024 * 1024
 BUNDLED_CLI = Path(__import__("claude_agent_sdk").__file__).parent / "_bundled" / "claude"
 
 
@@ -57,6 +60,7 @@ def make_can_use_tool(repo_root: Path, data_dir: Path):
 def build_options(cfg: Config, job_dir: Path, token: str, resume: str | None = None) -> ClaudeAgentOptions:
     return ClaudeAgentOptions(
         model=MODEL,
+        effort=EFFORT,
         cwd=str(cfg.repo_root),
         setting_sources=["project"],
         tools=list(TOOLS),
@@ -74,6 +78,7 @@ def build_options(cfg: Config, job_dir: Path, token: str, resume: str | None = N
         max_turns=cfg.max_turns,
         max_budget_usd=cfg.max_budget_usd,
         resume=resume,
+        max_buffer_size=MAX_BUFFER_BYTES,
     )
 
 

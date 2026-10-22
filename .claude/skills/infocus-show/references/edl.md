@@ -89,5 +89,6 @@ When the show came in more than one recording, or as separate camera feeds, the 
   - `file` uses a ready-made clip, e.g. the roster lower thirds in `{PACKAGE}/05 Lower Thirds/Roster (ProRes)/<Name> - Lower Third.mov`.
   - `covers` is the old baked-in overlay's [first, last] visible frame. It's used by `check_render.py` and is good documentation.
 - **Text:** `|` in a card title forces a line break. Five points max per card; more reads as a slide, so split the card.
+- **`script`** (optional, on a card): the index of the `brief.announcements` paragraph the card was made from. Set it on every card you write or match; the worker sends each card with its script text to the Portal, which hands them to later shows as `brief.pastCards`.
 - **Paths:** use absolute paths from `brief.json`. `{PACKAGE}` expands to `"package"` (copy `brief.packageDir` there), and `~` is expanded.
 - **Placeholders:** each `placeholder` segment gets a slate rendered automatically. Swap in a `file` segment once the package exists.

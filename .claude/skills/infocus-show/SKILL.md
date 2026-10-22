@@ -32,8 +32,10 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   - `showDate`: the airing date. The show is named `InFocus Show MM-DD-YYYY` from it.
   - `version`
   - `recordings`: the path of `show/recordings.json`, written by the worker: `{ "fps", "recordings": [{ "id": "r1", "kind": "program"|"multicam", "frames", "confidence", "files": [{ "path", "role": "program"|"M"|"L"|"R", "offsetFrames" }] }], "skipped": [...] }`. Frame `t` of a recording is frame `t + offsetFrames` of each of its files. (Older briefs have only `source`: one program recording.)
-  - `anchors`: the name spellings to use
-  - `announcements`: the script's announcement text
+  - `anchors`: who the Portal scheduled to anchor, often a nickname or first name ("EJ"); not always who's on air
+  - `roster`: the full names of everyone in the class, for name bars and for working out who's on air
+  - `announcements`: the script's announcement text, in reading order
+  - `pastCards`: announcement cards from earlier shows, newest first, each `{ showDate, title, points, script }` (`script` is the announcement text the card was made from, or null). The house style for cards you write yourself.
   - `packages`: the queued packages, in order, each with `localPath` and `toss`
   - `note`: the producer's Redo note, or null
   - `fix`: the fix request, or null
@@ -48,7 +50,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   ```
 - **Progress:** at the start of every step, run `python $S/progress.py <stage> "<short message>"`. The stages are `analyze`, `graphics`, `audio`, `build`, `render`, `check` and `fix`. The Portal shows this line to producers.
 - **Output:** finish every run by writing `<job folder>/result.json` (format below), even when things went wrong.
-- **Tools:** shell, reading and writing files, and viewing image files. Nothing else. On the machine: ffmpeg/ffprobe, whisper-cli with `~/.cache/whisper-cpp/ggml-large-v3-turbo.bin`, Node with Chrome (playwright drives the package's `graphics.html`), and Swift for the Vision matte (compiled on first use).
+- **Tools:** shell, reading and writing files, and viewing image files. Nothing else. On the machine: ffmpeg/ffprobe, whisper-cli with `~/.cache/whisper-cpp/ggml-large-v3-turbo.bin`, Node with Playwright's Chromium (it drives the package's `graphics.html`), and Swift for the Vision matte (compiled on first use).
 - **Stay inside your lane:**
   - Write only inside the job folder, plus appending to `brief.houseRules` when a fix asks you to remember something.
   - Never use `sudo`.
@@ -61,7 +63,7 @@ Read `brief.houseRules` before anything else. Its rules beat your own judgment.
 
 ## Workflow (`kind: "edit"`)
 
-Keep a running list of decisions in `<showDir>/decisions.json` as you go: `[{kind, detail, flagged}]`, where `kind` is one of `name`, `typo`, `take`, `package`, `fixup`, `card_mismatch`, `lyrics` or `other`. You copy it into `result.json` at the end.
+Keep a running list of decisions in `<showDir>/decisions.json` as you go: `[{kind, detail, flagged}]`, where `kind` is one of `name`, `typo`, `take`, `package`, `fixup`, `card_written`, `card_mismatch`, `lyrics` or `other`. You copy it into `result.json` at the end.
 
 ### 1. Check the recordings
 Read `recordings.json`. The worker has already dropped SD captures and duplicates (`skipped`) and recorded each as a decision. Probe the files with `ffprobe`; expect 1920×1080 at 59.94. If nothing usable is left, write `result.json` with `abort` set to one of these plain reasons, and stop:
@@ -89,7 +91,7 @@ A program recording's `report.md` lists:
 - the old overlays burned in, with exact frame windows
 - a still of every filmed TV card
 
-Then **open and view** the contact sheets in `analysis/sheets/` and every card still in `analysis/cards/`, and read the on-air text from them. Card text has to come from the stills, because the anchors paraphrase it.
+Then **open and view** the contact sheets in `analysis/sheets/` and every card still in `analysis/cards/`, and read the on-air text from them. A filmed card's text has to come from its still, because the anchors paraphrase it. A side-camera shot whose TV shows only the standby logo had no card filmed: you write that card (step 4).
 
 If no recording has an M shot, or none has speech, abort with "This doesn't look like a show recording (no anchor shot)" or "(no speech)".
 
@@ -121,8 +123,18 @@ In a multicam recording you decide the camera for every shot. Write the switchin
 
 ### 4. Decide what nobody is there to answer
 Apply these rules (plus the house rules) and record each as a decision:
-- **Names:** use the `brief.anchors` spelling on every name bar and dual third, even when the filmed graphic used a short form. Record this as `name`.
+- **Names:** work out who's actually on air, then use their full roster names on every name bar and dual third:
+  - **Listen to the open:** anchors introduce themselves ("I'm … and I'm …"). Whisper mangles names, so treat what it heard as a sound-alike, not a spelling.
+  - **Match to `brief.roster`:** pick the roster name that sounds most like what was said (first name, then last). A scheduled anchor (`brief.anchors`, often a nickname) that fits is the best match.
+  - **Who sits where:** in the two-shot, the anchor who speaks first in the open is usually the one who introduces themselves first; check it against who reads which announcements on L and R.
+  - If the people on air aren't the scheduled anchors, use the names you matched and flag a `name` decision saying who you heard and who you picked. If a name matches nothing on the roster, use the closest sensible spelling of what was said and flag it.
+  - Record each as `name`. Never use a filmed graphic's short form when the roster has the full name.
 - **Card typos:** fix only obvious typos, and keep every other word exactly as filmed. Record this as `typo`.
+- **Written cards:** some shows are filmed with no graphics at all (TVs on standby, no name bars), and camera feeds never have any. Every announcement still gets a card, which you write:
+  - **Find its script:** match what the anchor reads (the transcript) to its paragraph in `brief.announcements`. Set the card's `"script"` to that paragraph's index (0-based).
+  - **Facts from the script:** dates, times, rooms, links and prices come from the script. If the anchor says a different fact (another date, another room), use the script's and flag `card_mismatch`. If no paragraph matches what's read, write the card from the read alone and flag `card_mismatch`.
+  - **Write it like the past cards:** copy the style of `brief.pastCards` (and `references/past-cards.md` when there are few): a short title naming the club or event (2–5 words), then 2–4 points of 2–7 words each. Points are fragments, not sentences: when, where, then the one thing to know or do. Leave out anything the card doesn't need (who's organizing, background, "come have fun").
+  - Record each as `card_written` (not flagged) with the card's text.
 - **Card vs script:** compare each filmed card with `brief.announcements`. If they differ beyond a typo, keep the filmed text and flag `card_mismatch`.
 - **Packages:** use `brief.packages`, in order, as `file` segments at each throw (`"path": <localPath>`, `"audio": "match"`). If the anchors throw to more packages than the brief has, use a `placeholder` segment and flag a `package` decision. Never pull in a file from anywhere else.
 - **Package music:** transcribe or listen to it. Explicit lyrics get a flagged `lyrics` decision.
@@ -135,7 +147,7 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 - **Every overlay** names its `"recording"` too: `at` is a frame of that recording.
 
 **Program recordings:** before writing the file, list every old baked overlay and filmed card the analysis found **inside your chosen takes**, and give each one a cover:
-- **Every L/R segment gets a `card`**, or the old filmed card shows through.
+- **Every L/R segment gets a `card`**, or the old filmed card shows through: the filmed card's text, or a written card (step 4) when none was filmed.
 - **Every old name bar or dual third** gets a `render` overlay:
   - Set `at = first − 2` HD frames and `covers: [first, last]`.
   - Set `duration` so it runs as long as the old one did. Its out-animation must cover the old one's: duration ms = old length in seconds × 1000, plus the out-animation.
@@ -145,10 +157,10 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 - **The switcher's intro, logo card and end card are cut.**
 - An edit with any old graphic still visible is not finished.
 
-**Multicam recordings:** nothing to cover, so place the graphics:
-- **Every L/R take gets a `card`** with its announcement (title and points from `brief.announcements`).
-- **Name bars or a dual third** (`render` overlays, no `covers`) at each anchor's first M shot, about 1 s in, using the `brief.anchors` spellings.
-- **The Follow card** (`{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) once in the close.
+**Graphics nobody filmed** (multicam recordings, and program recordings filmed without graphics): place them yourself, so every show has the same graphics:
+- **Every L/R take gets a `card`**: a written card (step 4).
+- **A dual third** (a `render` overlay with `"type": "dual"`, no `covers`) on the first two-shot of the open, about 1 s in, with both anchors' names (step 4) in the order they sit, left then right. Use separate name bars instead only when the anchors never share a two-shot. Skip it only when the chosen takes already have an old one you're covering.
+- **The Follow card** (`{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) once in the close, unless the close already has an old one you're covering.
 
 **Every show:** the first segment is `{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4` and the last is `{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4`.
 

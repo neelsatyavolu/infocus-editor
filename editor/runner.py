@@ -14,7 +14,7 @@ from editor.backends import session_ref
 from editor.config import Config
 from editor.debugbundle import build_bundle
 from editor.housekeeping import kill_job_processes
-from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, job_paths, read_json, write_house_rules,
+from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, edl_cards, job_paths, read_json, write_house_rules,
                              write_json_atomic)
 from editor.joblog import describe_claim, describe_payload, describe_recordings, job_log
 from editor.media import MediaError, probe
@@ -170,7 +170,8 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     output, poster = Path(brief["output"]), Path(brief["poster"])
     await asyncio.to_thread(check_output, output, poster, deps.run)
 
-    payload = completion_payload(claim, result, sessions, prepared)
+    cards = edl_cards(paths.show / "edl.json", brief["announcements"])
+    payload = completion_payload(claim, result, sessions, prepared, cards)
     if claim.fix and claim.fix.remember:
         # The Portal keeps the house rules; send back the rules the agent just extended.
         payload["houseRules"] = paths.house_rules.read_text()[:MAX_HOUSE_RULES]
@@ -229,7 +230,8 @@ def check_output(output: Path, poster: Path, run=subprocess.run) -> None:
 
 
 def completion_payload(claim: Claim, result: dict[str, Any], sessions: SessionsResult,
-                       prepared: Prepared | None = None) -> dict[str, Any]:
+                       prepared: Prepared | None = None, cards: list[dict[str, Any]] | None = None
+                       ) -> dict[str, Any]:
     verdict = sessions.verdict
     early = list(prepared.decisions) if prepared else []  # skips, detected structure, weak matches
     decisions = early + list(sessions.decisions) + [
@@ -243,6 +245,8 @@ def completion_payload(claim: Claim, result: dict[str, Any], sessions: SessionsR
     checks["failures"] = list(verdict.failures)
     if verdict.loudness:
         checks["loudness"] = list(verdict.loudness)
+    if cards:
+        checks["cards"] = cards  # the Portal hands them to later edits as brief.pastCards
     needs_review = (bool(result.get("needsReview")) or not verdict.passed or any(d["flagged"] for d in decisions)
                     or bool(prepared and prepared.needs_review))
     payload: dict[str, Any] = {

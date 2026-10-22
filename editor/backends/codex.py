@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, failure
+from editor.backends.base import EFFORT, AgentOutcome, BackendStatus, OnEvent, failure
 from editor.backends.cli import agent_env, parse_json_line, private_dir, read_auth
 from editor.backends.guard import codex_rules
 from editor.backends.proc import ProcessRunner, run_process
@@ -62,7 +62,8 @@ class CodexBackend:
         return None if proc.returncode == 0 else "Codex says it isn't signed in; connect Codex again."
 
     def command(self, job_dir: Path, prompt: str, resume_id: str | None) -> list[str]:
-        common = ["--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox"]
+        common = ["--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox",
+                  "-c", f'model_reasoning_effort="{EFFORT}"']
         if resume_id:
             return [self._bin, "exec", "resume", *common, resume_id, prompt]
         dirs = []

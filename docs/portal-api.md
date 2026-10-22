@@ -39,6 +39,11 @@ The editor talks to two services:
     "sourcePaths": ["Shows/<file>.mov"],         // legacy: the non-ignored paths, in order
     "anchors": ["First Last", "First Last"],     // display names from the Portal
     "announcements": ["<announcement text as written in the script>"],
+    "pastCards": [{ "showDate": "2026-10-21", "title": "…", "points": ["…"], "script": "…" }],
+                                                 // cards from recent other shows' edits (their checks.cards),
+                                                 // newest first, up to 16; the style for written cards
+    "roster": ["First Last"],                    // the class's full names (no staff), for name bars and for
+                                                 // working out who's on air when it isn't the scheduled anchors
     "packages": [{ "title": "…", "nasPath": "Package Storage/…/x.mp4", "toss": "…" }],  // queue order; toss may be null
     "note": null,                 // the producer's Redo note, or null
     "outputNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.mp4",
@@ -72,7 +77,7 @@ The editor talks to two services:
 
 - `outputNasPath` must equal the claim's `brief.outputNasPath`, or the Portal returns 409.
 - `decisions`: `[{ kind: string≤40, detail: string≤300, flagged: boolean }]`, at most 50.
-- `checks`: the `checks` object from `result.json` (see `job-contract.md`).
+- `checks`: the `checks` object from `result.json` (see `job-contract.md`). The worker adds `cards`: `[{ title, points, script }]` from `edl.json`, where `script` is the announcement text the card was made from, or null.
 - `costUsd ≥ 0` is the cost of this run only. The Portal keeps the running total.
 - `reply` (≤1000) is required for `kind: "fix"`.
 

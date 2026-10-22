@@ -35,7 +35,22 @@ function slateHtml(label, note) {
   <div class=b></div><div class=k>PLACEHOLDER · PACKAGE</div><div class=t>${label}</div><div class=n>${note}</div>`;
 }
 
-const { browser, page } = await openPage();
+// Playwright's own Chromium (the installer puts it in ~/Library/Caches/ms-playwright), not the package's default of
+// the installed Google Chrome: Chrome started by the editor runs its self-updater, which macOS blocks with a
+// "uv was prevented from modifying apps" notice, and an editing Mac may not have Chrome at all.
+async function openBundledPage() {
+  const { chromium } = await import(pathToFileURL(path.join(GFX_SRC, "node_modules", "playwright-core", "index.mjs")).href);
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+  page.on("console", (m) => { if (m.type() === "warning" || m.type() === "error") console.warn(`[graphics] ${m.text()}`); });
+  await page.goto(pathToFileURL(path.join(GFX_SRC, "graphics.html")).href);
+  return { browser, page };
+}
+
+const { browser, page } = await openBundledPage().catch((e) => {
+  console.warn(`Playwright's Chromium didn't start (${e.message.split("\n")[0]}); using Google Chrome.`);
+  return openPage();
+});
 try {
   for (const seg of edl.segments) {
     if (only && seg.id !== only) continue;
