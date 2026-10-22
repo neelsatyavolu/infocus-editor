@@ -15,6 +15,13 @@
   - Check by eye: `check_render.py` makes `covers_<id>.jpg`.
 - **The fresh plates cover the old ones:** the same template renders plates the same size or slightly bigger. Check this per show, though: a longer old name, or a typo the anchor read out, can make an old plate wider. Measure both (old: ink/green bounding box; new: alpha bounding box). If the old plate is bigger, raise `render.scale` slightly.
 
+## Several recordings and camera feeds
+- **Names and times mean nothing:** TriCaster exports are all called `InFocus Show <date>.mov`, with ` (1)`, ` (2)` for name collisions, and carry no timecode. The worker works out which files were recorded together, and each file's role, from the sound and the picture (`recordings.json`). Trust that over names.
+- **Offsets are per file:** a recording's frame `t` is frame `t + offsetFrames` of each file. Use `sheet.py` on the file itself with the offset added when you check a multicam cut.
+- **Who is reading:** with separate camera mics the reader's feed is loudest. If every feed carries the same sound, the mic tells you nothing, and mouth movement (`multicam.md`) and the script order decide.
+- **Frozen or wrong feeds:** a feed that holds one picture for a long stretch (`frozen` in `multicam.md`) has no live camera there. Don't cut to it.
+- **Sync:** `verify_render.py` rule 10 compares the render's sound with each camera file's own sound. A failure means the recording's offsets are off for that camera. That's a review item, not something to fix by nudging `in`/`out`.
+
 ## Picking takes
 - Whisper drifts on long files. `analyze.py` transcribes in 2-minute chunks, but word times still wander by ±0.5 s. Put cut points in silences from `speech_runs_s` and confirm with `sheet.py`.
 - Repeated identical lines ("Who's on teleprompter?" ×50, "VIKINGS" ×10) are hallucinations over silence, not speech.

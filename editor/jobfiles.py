@@ -69,7 +69,10 @@ def package_local_name(index: int, nas_path: str) -> str:
     return f"{index + 1:02d}-{safe_name(Path(nas_path).name)}"
 
 
-def build_brief(cfg: Config, claim: Claim, paths: JobPaths, source: Path) -> dict[str, Any]:
+def build_brief(cfg: Config, claim: Claim, paths: JobPaths, recordings: Path, source: Path | None = None
+                ) -> dict[str, Any]:
+    """brief.json for the skill. `recordings` is show/recordings.json (what the files are);
+    `source` is set only when the job is exactly one program file, for older skills."""
     b = claim.brief
     packages = [
         {"title": p.get("title") or "", "localPath": str(paths.packages / package_local_name(i, p["nasPath"])),
@@ -83,7 +86,8 @@ def build_brief(cfg: Config, claim: Claim, paths: JobPaths, source: Path) -> dic
         "showDate": claim.show_date,
         "filmedOn": b.get("filmedOn"),
         "version": claim.version,
-        "source": str(source),
+        "recordings": str(recordings),
+        "source": str(source) if source else None,
         "anchors": list(b.get("anchors") or []),
         "announcements": list(b.get("announcements") or []),
         "packages": packages,
@@ -124,8 +128,3 @@ def read_json(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
-
-
-def read_brief_source(paths: JobPaths) -> Path | None:
-    brief = read_json(paths.brief)
-    return Path(brief["source"]) if brief and brief.get("source") else None

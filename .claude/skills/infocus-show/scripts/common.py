@@ -55,6 +55,51 @@ def load_edl(show_dir):
         return json.load(f)
 
 
+def recordings(edl):
+    """The show's recordings by id, from edl.json "recordings" (copied from the worker's show/recordings.json):
+    [{"id", "kind": "program"|"multicam", "frames", "files": [{"path", "role": "program"|"M"|"L"|"R",
+    "offsetFrames"}]}]. Frame t of a recording is frame t + offsetFrames of each of its files. An edl with only
+    "source" (one switched recording) is recording "r1"."""
+    if edl.get("recordings"):
+        return {r["id"]: r for r in edl["recordings"]}
+    return {"r1": {"id": "r1", "kind": "program", "files": [{"path": edl["source"], "role": "program",
+                                                             "offsetFrames": 0}]}}
+
+
+def recording_of(edl, item):
+    """The recording a segment or overlay belongs to ("recording": "r1"; optional when there's only one)."""
+    recs = recordings(edl)
+    rid = item.get("recording") or (next(iter(recs)) if len(recs) == 1 else None)
+    if rid not in recs:
+        raise RuntimeError(f"{item.get('id')}: name its recording ({', '.join(recs)}) with \"recording\"")
+    return recs[rid]
+
+
+def is_multicam(edl, item):
+    return recording_of(edl, item)["kind"] == "multicam"
+
+
+def _file(rec, role):
+    return next((f for f in rec["files"] if f["role"] == role), None)
+
+
+def segment_source(edl, seg):
+    """(file, frame offset) a source segment's picture comes from: frame f of the segment is frame f + offset of the
+    file. Program recording: its program file. Multicam recording: the file of the segment's camera ("cam")."""
+    rec = recording_of(edl, seg)
+    f = _file(rec, "program") if rec["kind"] == "program" else _file(rec, seg.get("cam"))
+    if not f:
+        raise RuntimeError(f"segment {seg['id']}: recording {rec['id']} has no {seg.get('cam')!r} camera file")
+    return expand(f["path"], edl), int(f.get("offsetFrames", 0))
+
+
+def segment_audio(edl, seg):
+    """(file, frame offset) a source segment's sound comes from: the recording's M file, else its program file."""
+    rec = recording_of(edl, seg)
+    f = _file(rec, "M") or _file(rec, "program") or rec["files"][0]
+    return expand(f["path"], edl), int(f.get("offsetFrames", 0))
+
+
 def card_segments(edl):
     """Source segments that carry an announcement card on the set TV."""
     return [s for s in edl["segments"] if s.get("kind") == "source" and s.get("card")]

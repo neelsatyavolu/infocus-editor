@@ -3,11 +3,15 @@
     uv run --with numpy python build_ffmpeg.py <show_dir> --output <file.mp4> [--version N]
 
 The picture is stacked the way an editor timeline would be:
-  V1  program: intro, chosen takes (trimmed by frame index), packages, placeholder slates, outro. Files at another
+  V1  program: intro, chosen takes (trimmed by frame index), packages, placeholder slates, outro. Each take reads
+      its recording (edl "recordings"): a program recording's program file, or in a multicam recording the file of
+      the take's camera ("cam"), at in + that file's offset, so a multicam show's takes are its switching plan.
+      Files at another
       rate are conformed to the show rate (60000/1001); a 29.97 clip shows each frame twice
   V2  fresh TV cards, scaled onto the set TV screen (SCREENS in common.py), for every source segment with a "card"
   V3  anchor foregrounds from foreground.py, so shoulders and hair stay in front of the cards
-  V4  overlays (name bars, dual thirds, Follow card, fix-up clips), from their "at" frame for the clip's whole length
+  V4  overlays (name bars, dual thirds, Follow card, fix-up clips), from their "at" frame (on their "recording")
+      for the clip's whole length
   A1  the mastered WAVs from master_audio.py, each cut to its segment's exact picture length
 Frame rules: a segment's "out" is exclusive; a clip at another rate lasts floor(frames x show rate / clip rate)
 show frames (a 828-frame 60 fps intro is 827 frames at 59.94; a 153-frame 29.97 outro is 306).
@@ -29,7 +33,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (H, SCREENS, W, card_file, expand, foreground_file, fps_value, load_edl, overlay_file,  # noqa: E402
-                    probe, seek_args, slate_file)
+                    probe, recording_of, seek_args, segment_source, slate_file)
 
 SR = 48000
 VIDEO_BITRATE = "30M"          # about what the old H.264 Master preset produced for a 1080p59.94 show
@@ -66,8 +70,9 @@ def plan(edl, show_dir):
             item = {"seg": seg, "path": slate_file(show_dir, seg)}
         else:
             n = seg["out"] - seg["in"]
-            item = {"seg": seg, "path": expand(edl["source"], edl)}
-            spans.append((seg["in"], seg["out"], rec))
+            path, offset = segment_source(edl, seg)
+            item = {"seg": seg, "path": path, "offset": offset}
+            spans.append((recording_of(edl, seg)["id"], seg["in"], seg["out"], rec))
             if seg.get("card"):
                 cards.append({"id": seg["id"], "rec_in": rec, "rec_out": rec + n})
         item.update(rec_in=rec, rec_out=rec + n)
@@ -75,9 +80,10 @@ def plan(edl, show_dir):
         rec += n
     overlays = []
     for o in edl.get("overlays", []):
-        hits = [r + (o["at"] - a) for a, b, r in spans if a <= o["at"] < b]
+        rid = recording_of(edl, o)["id"]
+        hits = [r + (o["at"] - a) for sid, a, b, r in spans if sid == rid and a <= o["at"] < b]
         if not hits:
-            raise RuntimeError(f"overlay {o['id']}: source frame {o['at']} is outside every chosen take")
+            raise RuntimeError(f"overlay {o['id']}: frame {o['at']} of recording {rid} is outside every chosen take")
         path = overlay_file(show_dir, o, edl)
         info = clip_info(path)
         n = conformed(info["frames"], info["rate"], rate)
@@ -121,7 +127,7 @@ def filtergraph(edl, show_dir, segments, overlays, total):
         seg, n = s["seg"], s["rec_out"] - s["rec_in"]
         out = f"s{i}"
         if seg["kind"] == "source":
-            pre, k = seek_args(seg["in"], fps)
+            pre, k = seek_args(seg["in"] + s["offset"], fps)
             src = add_input([*pre, "-i", s["path"]])
             chains.append(f"[{src}]trim=start_frame={k}:end_frame={k + n},setpts=PTS-STARTPTS,fps={rate},"
                           f"setsar=1,format=yuv444p[{out}b]")
@@ -259,7 +265,7 @@ def fcpxml(edl, show_dir, segments, cards, overlays, total, version):
     spine = []
     for s in segments:
         seg, n = s["seg"], s["rec_out"] - s["rec_in"]
-        start = Fraction(seg["in"]) / Fraction(rate) if seg["kind"] == "source" else Fraction(0)
+        start = Fraction(seg["in"] + s["offset"]) / Fraction(rate) if seg["kind"] == "source" else Fraction(0)
         start_s = f"{start.numerator}/{start.denominator}s"
         kind = "video" if seg["kind"] == "placeholder" else "asset-clip"
         aid = asset(s["path"], True, seg["kind"] != "placeholder")

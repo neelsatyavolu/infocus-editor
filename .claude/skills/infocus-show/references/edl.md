@@ -38,6 +38,45 @@ A full worked example (the 10-06-2026 show) is in `example-edl.json`.
 }
 ```
 
+## Several recordings and camera feeds
+
+When the show came in more than one recording, or as separate camera feeds, the file carries `"recordings"` (copied from the worker's `show/recordings.json`) instead of `"source"`, and every take and overlay names its recording:
+
+```jsonc
+{
+  "show": "InFocus Show 10-21-2026", "fps": "60000/1001", "package": "/path/to/InFocus 2026 Package",
+  "recordings": [
+    { "id": "r1", "kind": "multicam", "frames": 6667, "files": [
+        { "path": "/path/to/job/src/01.mov", "role": "M", "offsetFrames": 23 },
+        { "path": "/path/to/job/src/02.mov", "role": "L", "offsetFrames": 60 },
+        { "path": "/path/to/job/src/03.mov", "role": "R", "offsetFrames": 0 } ] },
+    { "id": "r2", "kind": "program", "frames": 9100, "files": [
+        { "path": "/path/to/job/src/04.mov", "role": "program", "offsetFrames": 0 } ] } ],
+  "segments": [
+    { "id": "intro", "kind": "file", "path": "{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4" },
+    { "id": "open", "kind": "source", "recording": "r1", "cam": "M", "in": 1135, "out": 1867 },
+    { "id": "chess_club", "kind": "source", "recording": "r1", "cam": "R", "in": 1867, "out": 3119,
+      "card": { "title": "Chess Club", "points": ["After school today", "Room 100"] } },
+    { "id": "close", "kind": "source", "recording": "r2", "cam": "M", "in": 6836, "out": 8150 },
+    { "id": "outro", "kind": "file", "path": "{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4" }
+  ],
+  "overlays": [
+    { "id": "dual_anchors", "recording": "r1", "at": 1187, "fps": "30000/1001",
+      "render": { "type": "dual", "name1": "Abby Smith", "title1": "InFocus Anchor",
+                  "name2": "Otto Lee", "title2": "InFocus Anchor", "duration": 8550 } },
+    { "id": "follow", "recording": "r2", "at": 7116, "covers": [7118, 7522],
+      "file": "{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov" }
+  ]
+}
+```
+
+- **Frames:** `in`/`out`/`at` are frames of the named recording's timeline. Frame `t` of a recording is frame `t + offsetFrames` of each of its files.
+- **Multicam takes:** the picture is the file whose `role` is the take's `cam`. Each take is one shot of the switching plan.
+- **Program takes:** the picture is the recording's `program` file, and `cam` is the camera the analysis saw.
+- **Sound:** every take's sound comes from its recording's M file, or else its program file.
+- **One recording per take:** a take never spans two recordings.
+- **Covers:** only program recordings have burned-in graphics, so only their overlays carry `covers`.
+
 ## Rules
 
 - **Frames:** `in` is the first frame used and `out` is exclusive, both in the recording's own frame numbers (as printed by `analyze.py` and `sheet.py`). The segment length is `out - in`.

@@ -14,6 +14,8 @@ Each file is exactly as long as the segment's picture on the timeline.
 
     uv run --with numpy python master_audio.py <show_dir>
 edl.json "audio": {"peak_dbfs": -6, "dialogue_lufs": -19.5, "channels": [0, 1]}  (these are the defaults)
+Anchor audio comes from each take's recording: its M camera file if it has one, else its program file, at that
+file's offset (edl "recordings").
 """
 import json
 import os
@@ -24,7 +26,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import expand, fps_value, load_edl, probe  # noqa: E402
+from common import expand, fps_value, load_edl, probe, segment_audio  # noqa: E402
 
 SR = 48000
 LEVEL = "dynaudnorm=f=200:g=11:p=0.5:m=10:s=0"            # ~2 s smoothing: follows speakers, not syllables
@@ -85,8 +87,11 @@ def main():
     edl = load_edl(show_dir)
     fps = fps_value(edl["fps"])
     cfg = {"peak_dbfs": -6.0, "dialogue_lufs": -19.5, "channels": [0, 1], **edl.get("audio", {})}
-    ch = cfg["channels"]
-    pan = f"pan=stereo|c0=c{ch[0]}|c1=c{ch[-1]}"
+
+    def pan_for(path):
+        have = next(st["channels"] for st in probe(path)["streams"] if st["codec_type"] == "audio")
+        ch = [min(c, have - 1) for c in cfg["channels"]]
+        return f"pan=stereo|c0=c{ch[0]}|c1=c{ch[-1]}"
     out_dir = os.path.join(show_dir, "Audio")
     os.makedirs(out_dir, exist_ok=True)
     report = []
@@ -96,11 +101,13 @@ def main():
         out = os.path.join(out_dir, f"{seg['id']}.wav")
         if seg["kind"] == "source":
             frames = seg["out"] - seg["in"]
-            start, dur = seg["in"] / fps, frames / fps
-            first = pcm(expand(edl["source"], edl), start, dur, f"{pan},{LEVEL},{limiter(cfg['peak_dbfs'])}")
+            audio, offset = segment_audio(edl, seg)     # the recording's M file, else its program file
+            pan = pan_for(audio)
+            start, dur = (seg["in"] + offset) / fps, frames / fps
+            first = pcm(audio, start, dur, f"{pan},{LEVEL},{limiter(cfg['peak_dbfs'])}")
             measured = loudness(first)
             trim = cfg["dialogue_lufs"] - measured if measured > SILENT_LUFS else 0.0
-            x = pcm(expand(edl["source"], edl), start, dur,
+            x = pcm(audio, start, dur,
                     f"{pan},{LEVEL},volume={trim:.2f}dB,{limiter(cfg['peak_dbfs'])}")
         else:
             path = expand(seg["path"], edl)

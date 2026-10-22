@@ -207,3 +207,69 @@ async def test_golden_missing_package_becomes_a_flagged_placeholder(tmp_path):
     assert any(s.get("kind") == "placeholder" for s in edl["segments"])
     assert portal.completed["needsReview"] is True
     assert any(d["kind"] == "package" and d["flagged"] for d in portal.completed["decisions"])
+
+
+# ---------- multicam: the agent's own switching plan on the pseudo-ISO 10-21 show ----------
+
+ISO_FIXTURE = Path(os.environ.get("INFOCUS_GOLDEN_ISO_FIXTURE", "~/InFocusEditor/fixtures/2026-10-21-iso")).expanduser()
+
+
+def _load_iso(name: str) -> dict[str, Any]:
+    path = ISO_FIXTURE / "golden" / name
+    if not path.exists():
+        pytest.skip(f"golden fixture missing: {path} (run build_iso.py there)")
+    return json.loads(path.read_text())
+
+
+def _truth_by_file(expected: dict[str, Any]) -> dict[int, tuple[str, dict[str, Any]]]:
+    """Fixture files by size (unique for the six feeds) -> (truth recording id, truth file entry)."""
+    return {os.path.getsize(f["path"]): (r["id"], f) for r in expected["recordings"] for f in r["files"]}
+
+
+async def test_golden_multicam_switching_matches_the_switcher(tmp_path):
+    """Six camera files (two recordings x M/L/R, shuffled, TriCaster-style names): the editor must find both
+    recordings, switch them itself, and land on the switcher's real cuts within ±1 s with the same cameras."""
+    from editor.runner import run_job
+    raw, expected = _load_iso("claim.json"), _load_iso("expected.json")
+    claim = parse_claim(raw)
+    portal = FakePortal(tmp_path / "nas")
+    portal.expect(raw["brief"])
+    deps, cfg = _deps(tmp_path, portal)
+    report = await run_job(deps, claim)
+    assert report.status == "REVIEW", portal.failed
+    show_dir = _job_show_dir(cfg, claim)
+
+    recs = json.loads((show_dir / "recordings.json").read_text())["recordings"]
+    assert sorted((r["kind"], sorted(f["role"] for f in r["files"])) for r in recs) == \
+        [("multicam", ["L", "M", "R"]), ("multicam", ["L", "M", "R"])]
+    truth = _truth_by_file(expected)
+    # agent frame t of a recording -> truth frame: shift by the M file's offset difference
+    to_truth, rid_map = {}, {}
+    for r in recs:
+        m = next(f for f in r["files"] if f["role"] == "M")
+        trid, tfile = truth[os.path.getsize(m["path"])]
+        assert all(truth[os.path.getsize(f["path"])][1]["role"] == f["role"] for f in r["files"]), "camera roles"
+        for f in r["files"]:
+            assert abs((f["offsetFrames"] - m["offsetFrames"]) -
+                       (truth[os.path.getsize(f["path"])][1]["offsetFrames"] - tfile["offsetFrames"])) <= 1, \
+                "sync offsets off by more than a frame"
+        to_truth[r["id"]] = tfile["offsetFrames"] - m["offsetFrames"]
+        rid_map[r["id"]] = trid
+
+    edl = json.loads((show_dir / "edl.json").read_text())
+    takes = [s for s in edl["segments"] if s.get("kind") == "source"]
+    plan = [{"recording": rid_map[a["recording"]], "from": a["cam"], "to": b["cam"],
+             "out": a["out"] - to_truth[a["recording"]], "in": b["in"] - to_truth[b["recording"]]}
+            for a, b in zip(takes, takes[1:]) if a["recording"] == b["recording"] and a["cam"] != b["cam"]]
+    slack = expected["slack_frames"]
+    for cut in (c for cuts in expected["switcher_cuts"].values() for c in cuts):
+        rid = next(k for k, v in expected["switcher_cuts"].items() if cut in v)
+        assert any(p["recording"] == rid and p["from"] == cut["from"] and p["to"] == cut["to"]
+                   and abs(p["out"] - cut["out"]) <= slack and abs(p["in"] - cut["in"]) <= slack for p in plan), \
+            f"switcher cut {cut} in {rid} missing from the plan {plan}"
+    assert len(plan) == sum(len(v) for v in expected["switcher_cuts"].values()), f"extra cuts: {plan}"
+    for t in takes:
+        if t["cam"] in ("L", "R"):
+            assert t.get("card"), f"{t['id']} has no card"
+    verify = json.loads((show_dir / "check" / "verify.json").read_text())
+    assert verify["pass"], verify["failures"]

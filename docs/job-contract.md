@@ -7,8 +7,7 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
   brief.json          worker → skill (rewritten for every run, including fixes)
   status.json         skill → worker (progress; written by scripts/progress.py)
   result.json         skill → worker (written at the end of every run)
-  source.mov          the recording (joined if the show came in several files)
-  src/01.mov …        the downloaded source files
+  src/01.mov …        the downloaded source files (never joined; see show/recordings.json)
   packages/01-<name>  the queued packages, in queue order
   show/               the skill's show folder (edl.json, Graphics/, analysis/, check/, layout.json …)
   out/                renders and posters, one pair per version
@@ -23,7 +22,8 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
   "showDate": "2026-10-21",        // airing date (the show is named "InFocus Show MM-DD-YYYY" from it)
   "filmedOn": "2026-10-20",        // or null
   "version": 1,                    // the output version this run produces
-  "source": "<job_dir>/source.mov",
+  "recordings": "<job_dir>/show/recordings.json", // what the files are: see multicam.md
+  "source": "<job_dir>/src/01.mov", // only when the job is exactly one program file (older skills)
   "anchors": ["First Last"],       // the spelling to use on name bars and dual thirds
   "announcements": ["…"],          // the script's announcement text (ground truth for TV cards)
   "packages": [{ "title": "…", "localPath": "<job_dir>/packages/01-x.mp4", "toss": "…" }],

@@ -2,7 +2,10 @@
 
     uv run --with numpy --with opencv-python --with pillow --with soundfile \\
       python verify_render.py <show_dir> [--render <file>] [--only 1,6]
-Reads edl.json, layout.json, analysis/analysis.json and Audio/levels.json (if present) from <show_dir>.
+Reads edl.json, layout.json, Audio/levels.json (if present) and, for each program recording, its analyze.py output
+(analysis/<recording id>/analysis.json; analysis/analysis.json for a show with only "source"). Takes from a
+multicam recording have no switcher graphics or switcher intro to check, so rules 2-4 and the switcher part of rule
+5 apply to program recordings only, and rules 9-10 to multicam recordings only.
 Writes <show_dir>/check/verify.json: {"pass", "failures": [{"rule", "ruleNumber", "segment"|"overlay", "frames", "detail"}],
 "loudness": [...]}. Exit 0 = pass, 1 = fail, 2 = could not run.
 
@@ -19,6 +22,11 @@ Rules (frames are render frames for 1, source frames for 2-4):
   6 audio            every segment's true peak is -6.0 ±0.3 dBFS; anchor segments sit within 1 dB of the dialogue
                      loudness (plus whatever master_audio.py had to lift them to reach the peak)
   7 basics           video + audio, 1920x1080 at the edl rate, as many frames as layout.json says (±2)
+  8 side_set         every L/R take shows its side set (TV detected) in the render and carries a fresh card
+  9 shot_length      multicam: no shot (consecutive same-camera takes) is under 1.5 s
+ 10 av_sync          multicam: on every camera, the render's sound lines up with that feed's own sound within
+                     1 frame (cross-checks the sync offsets in edl "cameras")
+ 11 recording_range  every take lies inside its recording (a take never spans two recordings)
 """
 import json
 import os
@@ -31,11 +39,16 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analyze import SH, SW, classify, green_mask, middle_set  # noqa: E402
 from check_render import loudness_rows  # noqa: E402
-from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, load_edl, overlay_file, package_dir,  # noqa: E402
-                    probe, seek_args)
+from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, is_multicam, load_edl,  # noqa: E402
+                    overlay_file, package_dir, probe, recording_of, recordings, seek_args, segment_source)
 
 RULES = {1: "switcher_frames", 2: "cover_span", 3: "cover_shape", 4: "uncovered", 5: "intro_outro", 6: "audio",
-         7: "basics"}
+         7: "basics", 8: "side_set", 9: "shot_length", 10: "av_sync", 11: "recording_range"}
+MIN_SHOT_S = 1.5
+SIDE_SHARE = 0.9     # rule 8: share of a take's frames that must show its side set
+SYNC_SR = 8000       # rule 10 analysis rate
+SYNC_SEARCH = 6      # rule 10: frames searched either way
+SYNC_MIN_CONF = 4.0  # rule 10: correlation peak / mean, below which a window can't be judged
 STUDIO = ("M", "L", "R")
 INTRO_FILE, OUTRO_FILE = "InFocus Intro 2026.mp4", "InFocus Outro 2026.mp4"
 ZONES = {"name bar (left)": (NAMEBAR_BAND[0], NAMEBAR_BAND[1], W // 2, NAMEBAR_BAND[3]),
@@ -64,6 +77,27 @@ def source_segments(edl):
     return [s for s in edl["segments"] if s["kind"] == "source"]
 
 
+def recording_view(edl, rid):
+    """edl.json narrowed to one program recording, shaped like a single-recording show ("source" = its program
+    file), so the program-recording rules can run on it unchanged."""
+    if not edl.get("recordings"):
+        return edl
+    rec = recordings(edl)[rid]
+    view = {k: v for k, v in edl.items() if k != "recordings"}
+    view["segments"] = [s for s in edl["segments"] if s["kind"] != "source" or recording_of(edl, s)["id"] == rid]
+    view["overlays"] = [o for o in edl.get("overlays", []) if recording_of(edl, o)["id"] == rid]
+    view["source"] = next(f["path"] for f in rec["files"] if f["role"] == "program")
+    return view
+
+
+def load_analysis(show_dir, edl, rid):
+    path = os.path.join(show_dir, "analysis", rid, "analysis.json")
+    if not os.path.exists(path) and not edl.get("recordings"):
+        path = os.path.join(show_dir, "analysis", "analysis.json")
+    with open(path) as f:
+        return json.load(f)
+
+
 def majority_cam(analysis, a, b):
     """Most common camera over source frames [a, b) according to analyze.py's shots."""
     counts = {}
@@ -88,25 +122,35 @@ def src_to_rec(edl, layout):
 
 # ---------- rule 1 ----------
 
-def rule_switcher_frames(render, edl, layout):
+def render_cams(render, edl, layout):
+    """Camera class of every render frame inside a source take: {take id: [class, ...]} ("missing" past the end)."""
     segs = [s for s in layout["segments"] if s["kind"] == "source" and s["rec_out"] > s["rec_in"]]
     if not segs:
-        return []
+        return {}
     mid = middle_set(package_dir(edl))
     expr = "+".join(f"between(n\\,{s['rec_in']}\\,{s['rec_out'] - 1})" for s in segs)
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", render, "-vf", f"select='{expr}',scale={SW}:{SH}:flags=area",
                           "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                          stdout=subprocess.PIPE)
     size = SW * SH * 3
-    failures = []
+    cams = {}
     for s in segs:
-        bad = {}
-        for t in range(s["rec_in"], s["rec_out"]):
+        seen = []
+        for _ in range(s["rec_in"], s["rec_out"]):
             buf = p.stdout.read(size)
-            if len(buf) < size:
-                bad.setdefault("missing", []).append(t)
-                continue
-            cam = classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid)
+            seen.append(classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid) if len(buf) == size
+                        else "missing")
+        cams[s["id"]] = seen
+    p.stdout.close()
+    p.wait()
+    return cams
+
+
+def rule_switcher_frames(cams, layout):
+    failures = []
+    for s in layout["segments"]:
+        bad = {}
+        for t, cam in zip(range(s["rec_in"], s["rec_out"]), cams.get(s["id"], [])):
             if cam not in STUDIO:
                 bad.setdefault(cam, []).append(t)
         for cam, frames in bad.items():
@@ -117,8 +161,120 @@ def rule_switcher_frames(render, edl, layout):
                 failures.append(fail(1, f"render frame{'s' if n > 1 else ''} {a}{f'–{b}' if n > 1 else ''} "
                                         f"({n} frame{'s' if n > 1 else ''}) show{'' if n > 1 else 's'} {what} inside take '{s['id']}'",
                                      segment=s["id"], frames=[a, b]))
-    p.stdout.close()
-    p.wait()
+    return failures
+
+
+def rule_side_set(cams, edl, layout):
+    rec = {s["id"]: s for s in layout["segments"]}
+    failures = []
+    for seg in source_segments(edl):
+        if seg.get("cam") not in ("L", "R") or seg["id"] not in rec:
+            continue
+        r = rec[seg["id"]]
+        seen = cams.get(seg["id"], [])
+        share = sum(c == seg["cam"] for c in seen) / max(1, len(seen))
+        if seen and share < SIDE_SHARE:
+            failures.append(fail(8, f"take '{seg['id']}' is planned on the {seg['cam']} set but only {share:.0%} of "
+                                    f"its frames show that set with its TV", segment=seg["id"],
+                                 frames=[r["rec_in"], r["rec_out"] - 1]))
+        if not seg.get("card"):
+            failures.append(fail(8, f"take '{seg['id']}' is on the {seg['cam']} set but has no fresh card",
+                                 segment=seg["id"], frames=[r["rec_in"], r["rec_out"] - 1]))
+    return failures
+
+
+def shots(edl):
+    """Consecutive source takes on the same camera that continue each other's frames are one shot."""
+    out = []
+    prev = None
+    for seg in edl["segments"]:
+        if seg["kind"] != "source":
+            prev = None
+            continue
+        if (prev and prev.get("cam") == seg.get("cam") and prev["out"] == seg["in"]
+                and prev.get("recording") == seg.get("recording")):
+            out[-1]["ids"].append(seg["id"])
+            out[-1]["out"] = seg["out"]
+        else:
+            out.append({"ids": [seg["id"]], "cam": seg.get("cam"), "in": seg["in"], "out": seg["out"]})
+        prev = seg
+    return out
+
+
+def rule_shot_length(edl):
+    fps = fps_value(edl["fps"])
+    multicam = {s["id"] for s in source_segments(edl) if is_multicam(edl, s)}
+    return [fail(9, f"{sh['cam']} shot {'+'.join(sh['ids'])} lasts {(sh['out'] - sh['in']) / fps:.2f} s; shots "
+                    f"must be at least {MIN_SHOT_S} s", segment=sh["ids"][0], frames=[sh["in"], sh["out"] - 1])
+            for sh in shots(edl) if sh["ids"][0] in multicam and (sh["out"] - sh["in"]) / fps < MIN_SHOT_S - 1e-9]
+
+
+def read_mono(path, start, seconds):
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, start):.6f}", "-t", f"{seconds:.6f}", "-i", path,
+                          "-vn", "-ac", "1", "-ar", str(SYNC_SR), "-f", "f32le", "-"], capture_output=True).stdout
+    return np.frombuffer(raw, np.float32)
+
+
+def sync_lag(a, b, max_lag):
+    """Lag (samples) of b behind a by GCC-PHAT, searched within ±max_lag, and the peak's confidence."""
+    n = min(len(a), len(b))
+    if n < SYNC_SR:
+        return None, 0.0
+    a, b = a[:n] - a[:n].mean(), b[:n] - b[:n].mean()
+    size = 1 << int(np.ceil(np.log2(2 * n)))
+    spec = np.fft.rfft(b, size) * np.conj(np.fft.rfft(a, size))
+    cc = np.fft.irfft(spec / (np.abs(spec) + 1e-12), size)
+    cc = np.concatenate([cc[-max_lag:], cc[:max_lag + 1]])
+    k = int(np.argmax(np.abs(cc)))
+    conf = float(np.abs(cc[k]) / (np.abs(cc).mean() + 1e-12))
+    return k - max_lag, conf
+
+
+def rule_av_sync(render, edl, layout):
+    """For each camera, compare the render's sound in that camera's takes with the feed's own sound at the same
+    frames. A lag means the camera's offset and the audio's offset disagree."""
+    fps = fps_value(edl["fps"])
+    rec = {s["id"]: s for s in layout["segments"]}
+    failures, notes = [], []
+    by_cam = {}
+    for seg in source_segments(edl):
+        if is_multicam(edl, seg):
+            by_cam.setdefault(f"{recording_of(edl, seg)['id']} {seg['cam']}", []).append(seg)
+    for cam, segs in sorted(by_cam.items()):
+        path, off = segment_source(edl, segs[0])
+        if not any(st["codec_type"] == "audio" for st in probe(path)["streams"]):
+            notes.append(f"{cam}: the feed has no sound, so its sync can't be cross-checked")
+            continue
+        lags = []
+        for seg in sorted(segs, key=lambda x: x["out"] - x["in"], reverse=True)[:3]:
+            n = min(seg["out"] - seg["in"], int(10 * fps))
+            if n < 2 * fps or seg["id"] not in rec:
+                continue
+            a = read_mono(render, rec[seg["id"]]["rec_in"] / fps, n / fps)
+            b = read_mono(path, (seg["in"] + off) / fps, n / fps)
+            lag, conf = sync_lag(a, b, int(SYNC_SEARCH * SYNC_SR / fps))
+            if lag is not None and conf >= SYNC_MIN_CONF:
+                lags.append(lag / SYNC_SR * fps)
+        if not lags:
+            notes.append(f"{cam}: the sound match was too weak to cross-check its sync")
+            continue
+        lag = float(np.median(lags))
+        if abs(lag) > 1.0 + 2 * fps / SYNC_SR:                # "within 1 frame", plus the measurement's step
+            failures.append(fail(10, f"{cam} picture and sound are {abs(lag):.1f} frames apart (the render's sound is "
+                                     f"{'late' if lag > 0 else 'early'} against the {cam} feed); re-check the sync "
+                                     "offsets in edl.json \"recordings\"", segment=segs[0]["id"]))
+    return failures, notes
+
+
+def rule_recording_range(edl):
+    failures = []
+    for seg in source_segments(edl):
+        rec = recording_of(edl, seg)
+        end = rec.get("frames")
+        if seg["in"] < 0 or seg["out"] <= seg["in"] or (end and seg["out"] > end):
+            failures.append(fail(11, f"take '{seg['id']}' ({seg['in']}–{seg['out']}) isn't inside recording "
+                                     f"{rec['id']} (0–{end or '?'}); a take can't run past its recording",
+                                 segment=seg["id"], frames=[seg["in"], seg["out"] - 1]))
     return failures
 
 
@@ -326,7 +482,18 @@ def switcher_regions(analysis):
     return regions
 
 
-def rule_intro_outro(edl, analysis):
+def rule_switcher_regions(edl, analysis):
+    """Program recording: no take reaches into the switcher's own intro or end card."""
+    failures = []
+    for name, a, b in switcher_regions(analysis):
+        for s in source_segments(edl):
+            if s["in"] < b and s["out"] > a:
+                failures.append(fail(5, f"take '{s['id']}' reaches into {name} (frames {a}–{b - 1})",
+                                     segment=s["id"], frames=[max(a, s["in"]), min(b, s["out"]) - 1]))
+    return failures
+
+
+def rule_intro_outro(edl, analysis=None):
     failures = []
     segs = edl["segments"]
 
@@ -338,11 +505,8 @@ def rule_intro_outro(edl, analysis):
     if not segs or not is_file(segs[-1], OUTRO_FILE):
         failures.append(fail(5, f"the show must end with the package outro ({OUTRO_FILE})",
                              segment=segs[-1]["id"] if segs else None))
-    for name, a, b in switcher_regions(analysis):
-        for s in source_segments(edl):
-            if s["in"] < b and s["out"] > a:
-                failures.append(fail(5, f"take '{s['id']}' reaches into {name} (frames {a}–{b - 1})",
-                                     segment=s["id"], frames=[max(a, s["in"]), min(b, s["out"]) - 1]))
+    if analysis is not None:
+        failures += rule_switcher_regions(edl, analysis)
     return failures
 
 
@@ -393,8 +557,6 @@ def verify(show_dir, render=None, only=None):
     edl = load_edl(show_dir)
     with open(os.path.join(show_dir, "layout.json")) as f:
         layout = json.load(f)
-    with open(os.path.join(show_dir, "analysis", "analysis.json")) as f:
-        analysis = json.load(f)
     levels_path = os.path.join(show_dir, "Audio", "levels.json")
     levels = {}
     if os.path.exists(levels_path):
@@ -402,24 +564,43 @@ def verify(show_dir, render=None, only=None):
             levels = {s["id"]: s for s in json.load(f)["segments"]}
     render = render or os.path.join(show_dir, f"{edl['show']} (preview).mp4")
     want = set(only or RULES)
-    failures, rows = [], []
+    failures, rows, notes = [], [], []
     basics = rule_basics(render, layout, edl)
     if 7 in want:
         failures += basics
     has_video = not any("no video" in f["detail"] or "can't read" in f["detail"] for f in basics)
-    if 1 in want and has_video:
-        failures += rule_switcher_frames(render, edl, layout)
-    if want & {2, 3}:
-        failures += [f for f in rule_covers(edl, layout, analysis, show_dir) if f["ruleNumber"] in want]
-    if 4 in want:
-        failures += rule_uncovered(edl, analysis)
+    has_audio = not any("no audio" in f["detail"] for f in basics)
+    cams = render_cams(render, edl, layout) if has_video and want & {1, 8} else {}
+    if 1 in want:
+        failures += rule_switcher_frames(cams, layout)
     if 5 in want:
-        failures += rule_intro_outro(edl, analysis)
-    if 6 in want and not any("no audio" in f["detail"] for f in basics):
+        failures += rule_intro_outro(edl)
+    used = {recording_of(edl, s)["id"] for s in source_segments(edl)}
+    for rid, rec in recordings(edl).items():
+        if rec["kind"] != "program" or rid not in used:
+            continue
+        analysis, view = load_analysis(show_dir, edl, rid), recording_view(edl, rid)
+        baked = analysis.get("baked_overlays") and any(o.get("covers") for o in view.get("overlays", []))
+        if want & {2, 3} and baked:
+            failures += [f for f in rule_covers(view, layout, analysis, show_dir) if f["ruleNumber"] in want]
+        if 4 in want:
+            failures += rule_uncovered(view, analysis)
+        if 5 in want:
+            failures += rule_switcher_regions(view, analysis)
+    if 6 in want and has_audio:
         audio_fails, rows = rule_audio(render, layout, edl, levels)
         failures += audio_fails
+    if 8 in want:
+        failures += rule_side_set(cams, edl, layout)
+    if 9 in want:
+        failures += rule_shot_length(edl)
+    if 10 in want and has_audio:
+        sync_fails, notes = rule_av_sync(render, edl, layout)
+        failures += sync_fails
+    if 11 in want:
+        failures += rule_recording_range(edl)
     failures.sort(key=lambda f: f["ruleNumber"])
-    return {"pass": not failures, "render": render, "failures": failures, "loudness": rows}
+    return {"pass": not failures, "render": render, "failures": failures, "loudness": rows, "notes": notes}
 
 
 def main(argv):

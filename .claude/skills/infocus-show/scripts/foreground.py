@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import H, SCREENS, W, card_segments, ensure_matter, expand, fps_value, foreground_file, load_edl  # noqa: E402
+from common import H, SCREENS, W, card_segments, ensure_matter, foreground_file, fps_value, load_edl, segment_source  # noqa: E402
 
 
 def alpha_for(frame, matte, rect):
@@ -68,7 +68,8 @@ def main():
     for seg in card_segments(edl):
         if only and seg["id"] != only:
             continue
-        build(expand(edl["source"], edl), edl["fps"], seg["in"], seg["out"], SCREENS[seg["cam"]], foreground_file(show_dir, seg))
+        src, off = segment_source(edl, seg)
+        build(src, edl["fps"], seg["in"] + off, seg["out"] + off, SCREENS[seg["cam"]], foreground_file(show_dir, seg))
 
 
 if __name__ == "__main__":

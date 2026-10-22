@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import fps_value, load_edl  # noqa: E402
+from common import fps_value, load_edl, recording_of  # noqa: E402
 
 SHEET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sheet.py")
 
@@ -86,9 +86,11 @@ def main():
         cov = o.get("covers")
         if not cov:
             continue
+        rid = recording_of(edl, o)["id"]
+
         def to_rec(src):
             for sid, s in src_segs.items():
-                if s["in"] <= src < s["out"]:
+                if recording_of(edl, s)["id"] == rid and s["in"] <= src < s["out"]:
                     return rec_of[sid] + src - s["in"]
             return None
         first, last = to_rec(cov[0]), to_rec(cov[1])

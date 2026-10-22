@@ -8,6 +8,7 @@ import pytest
 from editor.backends import AgentOutcome, BackendPool, BackendStatus
 from editor.jobfiles import write_json_atomic
 from editor.portal import Claim, Download, Fix, UploadTarget, UploadTargets
+from editor.recordings import Profile
 from editor.runner import RunnerDeps, run_job
 from editor.verify import Verdict
 from tests.helpers import make_config
@@ -20,7 +21,8 @@ POSTER_NAS = f"Package Storage/Shows/{DATE}/InFocus Show {DATE}-111.poster.jpg"
 def probe_json(duration=480.0, width=1920, height=1080, audio=True, video=True):
     streams = []
     if video:
-        streams.append({"codec_type": "video", "codec_name": "h264", "width": width, "height": height})
+        streams.append({"codec_type": "video", "codec_name": "h264", "width": width, "height": height,
+                        "r_frame_rate": "60000/1001"})
     if audio:
         streams.append({"codec_type": "audio", "codec_name": "aac"})
     return json.dumps({"format": {"duration": str(duration)}, "streams": streams})
@@ -79,7 +81,8 @@ class FakeDrive:
 
     async def download(self, url, dest, size):
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"m" * (size or 1))
+        body = (url.encode() * ((size or 1) // max(1, len(url)) + 1))[: size or 1]  # distinct per file
+        dest.write_bytes(body)
         self.downloads.append((url, dest.name))
         return dest
 
@@ -177,7 +180,8 @@ def deps_for(tmp_path, agent, *, portal=None, verdicts=None, run=None, timeout=7
     agents = agent if isinstance(agent, list) else [agent]
     pool = BackendPool(agents, ["claude", "codex", "grok"])
     return RunnerDeps(cfg=cfg, portal=portal or FakePortal(), drive=FakeDrive(), pool=pool,
-                      run=run or FakeRun(), verify=verify, sweep=Sweep(), popen=FakePopen, status_poll_s=0.01)
+                      run=run or FakeRun(), verify=verify, sweep=Sweep(), popen=FakePopen, status_poll_s=0.01,
+                      envelope=lambda path: None, profile=lambda path: Profile(()))
 
 
 async def test_happy_path_uploads_to_the_brief_paths_and_completes(tmp_path):
@@ -194,7 +198,7 @@ async def test_happy_path_uploads_to_the_brief_paths_and_completes(tmp_path):
     brief = json.loads((job_dir / "brief.json").read_text())
     assert brief["anchors"] == ["Abby Example", "Otto Example"]
     assert brief["packages"][0]["localPath"].endswith("packages/01-pkg0.mp4")
-    assert Path(brief["source"]).name == "source.mov"
+    assert Path(brief["source"]).name == "01.mov" and Path(brief["recordings"]).name == "recordings.json"
 
 
 async def test_status_json_changes_are_forwarded_once_each(tmp_path):
@@ -346,23 +350,19 @@ async def test_remembered_fix_sends_the_updated_house_rules(tmp_path):
     assert not (deps.cfg.data_dir / ".git").exists()
 
 
-async def test_two_files_are_joined_in_order_before_analysis(tmp_path):
+async def test_two_takes_become_two_recordings_and_are_never_joined(tmp_path):
     run = FakeRun()
     deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)), run=run)
     await run_job(deps, edit_claim(sources=("Shows/part1.mov", "Shows/part2.mov")))
     job_dir = deps.cfg.work_root / f"{DATE}-j1"
-    listing = (job_dir / "sources.txt").read_text().splitlines()
-    assert listing[0].endswith("src/01.mov'") and listing[1].endswith("src/02.mov'")
-    concat = [c for c in run.commands if c[0] == "ffmpeg"][0]
-    assert "-c" in concat and concat[concat.index("-c") + 1] == "copy"
-
-
-async def test_mismatched_files_are_reencoded_to_prores(tmp_path):
-    run = FakeRun({"02.mov": probe_json(240, width=1280, height=720)})
-    deps = deps_for(tmp_path, FakeAgent(lambda d, c: finish(d)), run=run)
-    await run_job(deps, edit_claim(sources=("Shows/a.mov", "Shows/b.mov")))
-    concat = [c for c in run.commands if c[0] == "ffmpeg"][0]
-    assert "prores_ks" in concat
+    brief = json.loads((job_dir / "brief.json").read_text())
+    recordings = json.loads(Path(brief["recordings"]).read_text())
+    assert [(r["id"], r["kind"], [Path(f["path"]).name for f in r["files"]]) for r in recordings["recordings"]] == [
+        ("r1", "program", ["01.mov"]), ("r2", "program", ["02.mov"])]
+    assert brief["source"] is None  # more than one file: the skill reads recordings.json
+    assert not (job_dir / "sources.txt").exists() and not any(c[0] == "ffmpeg" for c in run.commands)
+    structure = [d for d in deps.portal.completed["decisions"] if d["kind"] == "structure"]
+    assert structure == [{"kind": "structure", "detail": "2 recordings: r1 program, r2 program", "flagged": False}]
 
 
 @pytest.mark.parametrize("probe,message", [
@@ -371,7 +371,7 @@ async def test_mismatched_files_are_reencoded_to_prores(tmp_path):
 ])
 async def test_bad_recordings_fail_before_any_agent_cost(tmp_path, probe, message):
     agent = FakeAgent()
-    deps = deps_for(tmp_path, agent, run=FakeRun({"source.mov": probe}))
+    deps = deps_for(tmp_path, agent, run=FakeRun({"01.mov": probe}))
     report = await run_job(deps, edit_claim())
     assert report.status == "FAILED" and message in deps.portal.failed[0]
     assert agent.calls == []
@@ -456,8 +456,8 @@ async def test_usage_limit_falls_back_to_the_next_backend_in_a_fresh_session(tmp
     assert codex.calls[0]["prompt"].startswith("This continues an earlier edit")
     done = deps.portal.completed
     assert done["agentSessionId"] == "codex:sess-1"
-    assert done["decisions"][0] == {"kind": "backend", "flagged": False,
-                                    "detail": "Edited with Codex because Claude hit its usage limit"}
+    assert {"kind": "backend", "flagged": False,
+            "detail": "Edited with Codex because Claude hit its usage limit"} in done["decisions"]
     status = {s.name: s for s in deps.pool.statuses()}
     assert status["claude"].connected and "usage limit" in status["claude"].detail
 
@@ -468,7 +468,8 @@ async def test_broken_sign_in_falls_back_and_marks_the_backend_disconnected(tmp_
     grok = FakeAgent(lambda d, c: finish(d), name="grok")
     deps = deps_for(tmp_path, [claude, grok])
     await run_job(deps, edit_claim())
-    assert "Edited with Grok because Claude needs signing in again" in deps.portal.completed["decisions"][0]["detail"]
+    backend = [d for d in deps.portal.completed["decisions"] if d["kind"] == "backend"]
+    assert "Edited with Grok because Claude needs signing in again" in backend[0]["detail"]
     assert [b.name for b in deps.pool.connected()] == ["grok"]
 
 

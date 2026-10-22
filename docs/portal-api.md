@@ -33,7 +33,10 @@ The editor talks to two services:
     "showDate": "2026-10-21",     // airing date
     "filmedOn": "2026-10-20",     // or null
     "version": 1,                 // timeline version this run must produce
-    "sourcePaths": ["Shows/<file>.mov"],         // 1–4, in order
+    "sources": [{ "path": "Shows/<file>.mov", "role": "auto", "order": 1, "modifiedAt": "2026-10-21T22:29:46Z" }],
+                                                 // 1–12; role auto|program|M|L|R|ignore (see multicam.md);
+                                                 // modifiedAt is the export time, used to order takes
+    "sourcePaths": ["Shows/<file>.mov"],         // legacy: the non-ignored paths, in order
     "anchors": ["First Last", "First Last"],     // display names from the Portal
     "announcements": ["<announcement text as written in the script>"],
     "packages": [{ "title": "…", "nasPath": "Package Storage/…/x.mp4", "toss": "…" }],  // queue order; toss may be null
@@ -41,7 +44,7 @@ The editor talks to two services:
     "outputNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.mp4",
     "posterNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.poster.jpg"
   },
-  // kind "edit" only: one entry per sourcePath, then one per package, in brief order
+  // kind "edit" only: one entry per non-ignored source, then one per package, in brief order
   "downloads": [{ "path": "Shows/<file>.mov", "url": "https://<drive>/api/service/file?path=…&token=…&inline=false", "size": 345000000 }],
   // kind "fix" only:
   "fix": { "text": "the producer's request", "remember": false, "agentSessionId": "…", "version": 2 }

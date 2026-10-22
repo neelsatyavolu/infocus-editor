@@ -12,13 +12,13 @@ from typing import Any, Callable
 from editor.backends import session_ref
 from editor.config import Config
 from editor.housekeeping import kill_job_processes
-from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, job_paths, read_brief_source, write_house_rules,
-                             write_json_atomic)
+from editor.jobfiles import MAX_HOUSE_RULES, build_brief, job_paths, write_house_rules, write_json_atomic
 from editor.media import MediaError, probe
 from editor.portal import AuthError, Claim
 from editor.power import job_awake
-from editor.prepare import JobFailed, prepare_edit, touch
+from editor.prepare import JobFailed, Prepared, prepare_edit, read_prepared, touch
 from editor.progress import Reporter
+from editor.recordings import profile_with_skill
 from editor.sessions import JobCancelled, SessionsResult, run_sessions
 from editor.verify import Verdict, run_verify
 
@@ -37,6 +37,8 @@ class RunnerDeps:
     verify: Callable[..., Verdict] = run_verify
     sweep: Callable[[Path], Any] = kill_job_processes
     popen: Callable[..., subprocess.Popen] = subprocess.Popen
+    envelope: Any = None  # audio envelope per file (editor.sync.audio_envelope unless a test supplies one)
+    profile: Any = None  # picture profile per file (the skill's classifier unless a test supplies one)
     status_poll_s: float = 5.0
 
 
@@ -94,21 +96,23 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     cfg = deps.cfg
     paths = job_paths(cfg, claim)
     if claim.kind == "fix":
-        source = read_brief_source(paths) if paths.root.is_dir() else None
-        if source is None:
+        prepared = read_prepared(paths) if paths.root.is_dir() else None
+        if prepared is None:
             raise JobFailed("The edit files were cleaned up; use Redo.")
         touch(paths.root)
         await reporter.report("fix", f"Applying the fix for v{claim.version}")
     else:
         await reporter.report("download", "Downloading the recording and packages")
-        source = await prepare_edit(deps.drive, claim, paths, deps.run)
+        prepared = await prepare_edit(deps.drive, claim, paths, deps.run, envelope=deps.envelope,
+                                      profile=deps.profile or profile_with_skill(cfg.skill_dir / "scripts",
+                                                                                 cfg.package_dir, deps.run))
     if cancel.is_set():
         raise JobCancelled()
 
     for stale in (paths.result, paths.status):
         stale.unlink(missing_ok=True)
     write_house_rules(cfg, claim, paths)
-    brief = build_brief(cfg, claim, paths, source)
+    brief = build_brief(cfg, claim, paths, prepared.recordings, prepared.source)
     write_json_atomic(paths.brief, brief)
 
     sessions = await run_sessions(deps, claim, paths, brief, cancel, reporter)
@@ -119,7 +123,7 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     output, poster = Path(brief["output"]), Path(brief["poster"])
     await asyncio.to_thread(check_output, output, poster, deps.run)
 
-    payload = completion_payload(claim, result, sessions)
+    payload = completion_payload(claim, result, sessions, prepared)
     if claim.fix and claim.fix.remember:
         # The Portal keeps the house rules; send back the rules the agent just extended.
         payload["houseRules"] = paths.house_rules.read_text()[:MAX_HOUSE_RULES]
@@ -153,9 +157,11 @@ def check_output(output: Path, poster: Path, run=subprocess.run) -> None:
         raise JobFailed("The editor finished without a poster frame.")
 
 
-def completion_payload(claim: Claim, result: dict[str, Any], sessions: SessionsResult) -> dict[str, Any]:
+def completion_payload(claim: Claim, result: dict[str, Any], sessions: SessionsResult,
+                       prepared: Prepared | None = None) -> dict[str, Any]:
     verdict = sessions.verdict
-    decisions = list(sessions.decisions) + [
+    early = list(prepared.decisions) if prepared else []  # skips, detected structure, weak matches
+    decisions = early + list(sessions.decisions) + [
         {"kind": str(d.get("kind") or "other")[:40], "detail": str(d.get("detail") or "")[:300],
          "flagged": bool(d.get("flagged"))}
         for d in (result.get("decisions") or []) if isinstance(d, dict)
@@ -166,7 +172,8 @@ def completion_payload(claim: Claim, result: dict[str, Any], sessions: SessionsR
     checks["failures"] = list(verdict.failures)
     if verdict.loudness:
         checks["loudness"] = list(verdict.loudness)
-    needs_review = bool(result.get("needsReview")) or not verdict.passed or any(d["flagged"] for d in decisions)
+    needs_review = (bool(result.get("needsReview")) or not verdict.passed or any(d["flagged"] for d in decisions)
+                    or bool(prepared and prepared.needs_review))
     payload: dict[str, Any] = {
         "outputNasPath": str(claim.brief.get("outputNasPath") or ""),
         "decisions": decisions,

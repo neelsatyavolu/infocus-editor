@@ -1,7 +1,8 @@
 """First look at an InFocus show recording: what's in it and where.
 
     uv run --with numpy --with opencv-python --with pillow --with soundfile python analyze.py <recording.mov> <show_dir>
-The package folder comes from $INFOCUS_PACKAGE (or --package <dir>).
+The package folder comes from $INFOCUS_PACKAGE (or --package <dir>). --out <dir> writes somewhere other than
+<show_dir>/analysis (one folder per recording when a show has several: analysis/<recording id>).
 
 Writes <show_dir>/analysis/:
   report.md       shot list (camera per shot + what's said), baked-in overlays, filmed TV cards, restart cues
@@ -78,6 +79,24 @@ def classify(f, mid):
     if dr > 0.75 and dr > dl + 0.15:
         return "R"
     return "OTHER"
+
+
+def classify_frames(path, every_s=2.0, package=None):
+    """Camera class (M, L, R, FS, BLACK, OTHER) of one frame every `every_s` seconds of a video, in order: a quick
+    picture profile of a file (the worker uses it to tell program feeds from camera feeds)."""
+    mid = middle_set(package)
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", path, "-vf", f"fps=1/{every_s},scale={SW}:{SH}:flags=area",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE)
+    out = []
+    while True:
+        buf = p.stdout.read(SW * SH * 3)
+        if len(buf) < SW * SH * 3:
+            break
+        out.append(classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid))
+    p.stdout.close()
+    if p.wait():
+        raise RuntimeError(f"ffmpeg couldn't read {path}")
+    return out
 
 
 def scan_video(path, fps, n_frames, package=None):
@@ -271,8 +290,13 @@ def main():
         k = args.index("--package")
         os.environ["INFOCUS_PACKAGE"] = args[k + 1]
         del args[k:k + 2]
+    adir = None
+    if "--out" in args:
+        k = args.index("--out")
+        adir = args[k + 1]
+        del args[k:k + 2]
     path, show_dir = args[0], args[1]
-    adir = os.path.join(show_dir, "analysis")
+    adir = adir or os.path.join(show_dir, "analysis")
     for sub in ("sheets", "cards"):
         os.makedirs(os.path.join(adir, sub), exist_ok=True)
     info = probe(path)
@@ -316,7 +340,8 @@ def main():
     lines = [f"# Analysis: {os.path.basename(path)}", "",
              f"{v['width']}x{v['height']} at {v['r_frame_rate']} ({fps:.3f} fps), {dur:.1f} s, {n} frames. "
              f"Audio channels with signal: {live}. Frame numbers are in this file's frame rate.", "",
-             "## Shots", "", "| # | start | end | len | cam | said |", "|---|---|---|---|---|---|"]
+             ]
+    lines += ["## Shots", "", "| # | start | end | len | cam | said |", "|---|---|---|---|---|---|"]
     for k, s in enumerate(shots):
         cue = " ⚠️ restart?" if s["restart_cue"] else ""
         lines.append(f"| {k} | {tc(s['t0'])} f{s['start']} | {tc(s['t1'])} f{s['end']} | {s['t1'] - s['t0']:.1f}s | "

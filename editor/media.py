@@ -1,14 +1,18 @@
-"""ffprobe/ffmpeg helpers: probe a file, join a show split into several files."""
+"""ffprobe/ffmpeg helpers: probe a file, conform a feed to the house format."""
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable
 
 Run = Callable[..., subprocess.CompletedProcess]
+
+HOUSE_FPS = Fraction(60000, 1001)
+HOUSE_SIZE = (1920, 1080)
+PRORES_HQ = ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s24le"]
 
 
 class MediaError(Exception):
@@ -22,6 +26,7 @@ class MediaInfo:
     height: int
     video_codec: str | None
     audio_codec: str | None
+    fps: Fraction | None = None
 
     @property
     def has_video(self) -> bool:
@@ -31,19 +36,35 @@ class MediaInfo:
     def has_audio(self) -> bool:
         return self.audio_codec is not None
 
+    @property
+    def is_house_format(self) -> bool:
+        return (self.width, self.height) == HOUSE_SIZE and self.fps == HOUSE_FPS
+
+    def frames(self, fps: Fraction | None = None) -> int:
+        return round(self.duration * float(fps or self.fps or HOUSE_FPS))
+
+
+def _fps(text: str | None) -> Fraction | None:
+    try:
+        value = Fraction(text) if text else None
+    except (ValueError, ZeroDivisionError):
+        return None
+    return value if value else None
+
 
 def parse_probe(raw: str) -> MediaInfo:
     data = json.loads(raw or "{}")
     streams = data.get("streams") or []
-    video = next((s for s in streams if s.get("codec_type") == "video"), None)
-    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
-    duration = float((data.get("format") or {}).get("duration") or 0)
+    fmt = data.get("format") or {}
+    video = next((s for s in streams if s.get("codec_type") == "video"), None) or {}
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None) or {}
     return MediaInfo(
-        duration=duration,
-        width=int((video or {}).get("width") or 0),
-        height=int((video or {}).get("height") or 0),
-        video_codec=(video or {}).get("codec_name"),
-        audio_codec=(audio or {}).get("codec_name"),
+        duration=float(fmt.get("duration") or 0),
+        width=int(video.get("width") or 0),
+        height=int(video.get("height") or 0),
+        video_codec=video.get("codec_name"),
+        audio_codec=audio.get("codec_name"),
+        fps=_fps(video.get("r_frame_rate")),
     )
 
 
@@ -55,31 +76,17 @@ def probe(path: Path, run: Run = subprocess.run) -> MediaInfo:
     return parse_probe(proc.stdout)
 
 
-def join_sources(sources: Sequence[Path], out_dir: Path, run: Run = subprocess.run) -> Path:
-    """One file: use it as is. Several: concat losslessly when they match,
-    otherwise re-encode to ProRes 422 HQ. Returns the joined source path."""
-    if not sources:
-        raise MediaError("No source files")
-    if len(sources) == 1:
-        target = out_dir / f"source{sources[0].suffix.lower()}"
-        if not target.exists():
-            os.link(sources[0], target)  # keeps src/ intact for a retried attempt
-        return target
-    infos = [probe(p, run) for p in sources]
-    same = len({(i.video_codec, i.width, i.height, i.audio_codec) for i in infos}) == 1
-    list_file = out_dir / "sources.txt"
-    list_file.write_text("".join(f"file '{_escape(p)}'\n" for p in sources))
-    target = out_dir / "source.mov"
-    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(list_file)]
-    if same:
-        cmd += ["-c", "copy"]
-    else:
-        cmd += ["-c:v", "prores_ks", "-profile:v", "3", "-c:a", "pcm_s24le"]
-    proc = run(cmd + [str(target)], capture_output=True, text=True, check=False)
+def conform_args() -> list[str]:
+    """To 1080p59.94 ProRes 422 HQ (scaled with letterboxing if the aspect differs)."""
+    w, h = HOUSE_SIZE
+    vf = (f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
+          f"fps={HOUSE_FPS.numerator}/{HOUSE_FPS.denominator}")
+    return ["-vf", vf, *PRORES_HQ]
+
+
+def conform(src: Path, dest: Path, run: Run = subprocess.run) -> Path:
+    proc = run(["ffmpeg", "-y", "-v", "error", "-i", str(src), *conform_args(), str(dest)],
+               capture_output=True, text=True, check=False)
     if proc.returncode != 0:
-        raise MediaError(f"Couldn't join the recording files: {(proc.stderr or '').strip()[:300]}")
-    return target
-
-
-def _escape(path: Path) -> str:
-    return str(path.resolve()).replace("'", "'\\''")
+        raise MediaError(f"Couldn't convert {src.name} to 1080p59.94: {(proc.stderr or '').strip()[:300]}")
+    return dest

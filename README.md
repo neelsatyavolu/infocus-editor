@@ -34,7 +34,8 @@ Portal  ── claim / heartbeat / progress / complete ──►  this worker (l
 | `editor/runner.py`, `editor/sessions.py` | One job: prepare → agent sessions → verify → check the output → upload → complete. Also handles cancel, the 75-minute limit and falling back to the next AI account. |
 | `editor/backends/` | One interface over `claude.py` (Agent SDK + OAuth token), `codex.py` (`codex exec --json`) and `grok.py` (`grok -p`). `guard.py` holds the rules that keep agents away from root; `proc.py` runs a CLI in its own process group. |
 | `editor/pairing.py`, `editor/connect.py` | Connecting an AI account: the Mac's key pair and credential install; `connect` signs in on a producer's computer. |
-| `editor/prepare.py` | Downloads, joining a show split into several files, and rejecting SD captures or non-shows before any agent runs. |
+| `editor/prepare.py`, `editor/recordings.py` | Downloads, then works out what the files are from their content (names and times can't be trusted): SD files, duplicates and Ignore'd files are skipped; files whose audio correlates are one recording; a program feed vs M/L/R cameras comes from the skill's frame classifier (`editor/frame_profile.py`); a role set in the Portal overrides. Writes `show/recordings.json`; recordings are never joined. |
+| `editor/sync.py` | 1 kHz audio envelopes and FFT cross-correlation with a peak-ratio confidence. |
 | `editor/portal.py`, `editor/drive.py` | Portal client with retries; Drive download with resume and chunked upload. |
 | `editor/doctor.py` | Health check in plain sentences. |
 | `editor/updater.py` | Remote self-update to the latest release or the Portal's pin, with rollback. |

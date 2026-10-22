@@ -323,13 +323,13 @@ source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
     { name = "httpx" },
+    { name = "numpy" },
     { name = "pynacl" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "jsonschema" },
-    { name = "numpy" },
     { name = "opencv-python" },
     { name = "pillow" },
     { name = "pytest" },
@@ -341,13 +341,13 @@ dev = [
 requires-dist = [
     { name = "claude-agent-sdk" },
     { name = "httpx" },
+    { name = "numpy", specifier = ">=2.5.4" },
     { name = "pynacl", specifier = ">=1.6.2" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "jsonschema" },
-    { name = "numpy" },
     { name = "opencv-python" },
     { name = "pillow" },
     { name = "pytest" },

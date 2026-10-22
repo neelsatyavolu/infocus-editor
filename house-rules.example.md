@@ -2,7 +2,7 @@
 
 Decisions producers have already made. The unattended editor reads this file before every edit and follows it instead of deciding again or asking. Its rules beat the editor's own judgment. Anything no rule covers gets flagged for review.
 
-The live copy lives in the editor's data folder (`~/InFocusEditor/house-rules.md`), not in this repo, because remembered fixes can mention real shows and people. This file seeds it.
+Producers edit the live rules in the Portal (Automatic editing → Editor settings → House rules), and "Remember this" fixes are added there. This file is the editor's default until a producer saves their own.
 
 1. **Fresh graphics, every show.** Replace every burned-in graphic with a fresh 2026-package render: TV cards, name bars and dual thirds, the Follow card, and any logo or graphic fired by mistake. Cut the switcher's intro, logo card and end card, and use `InFocus Intro 2026.mp4` and `InFocus Outro 2026.mp4`.
 2. **Every segment peaks at −6 dBFS.** That includes anchors, throws, packages, intro and outro. Anchor dialogue is levelled to about −19.5 LUFS first.
@@ -16,3 +16,8 @@ The live copy lives in the editor's data folder (`~/InFocusEditor/house-rules.md
 10. **Packages come only from the publishing queue** (`brief.packages`, in order). If the anchors throw to a package that isn't there, use a placeholder slate and flag it.
 11. **Explicit lyrics in package music go to review**, never to auto-publish.
 12. **Package design rules:** name plates are square in Soft White `#ECEFEA`. TVs idle on `09 TV Standby`. The Follow card sits top left.
+13. **Several recordings:** the best take of a segment can be in any recording. The last complete, clean read wins wherever it is. A take never spans two recordings.
+14. **Camera feeds, the open, throws and close:** these are on M (the two-shot).
+15. **Camera feeds, announcements:** each one is on the side set (L or R) of the anchor reading it, with that announcement's card on the TV. Decide who is reading from mouth movement, then the loudest feed, then the script order. When the recording also has a switched program file, its cuts are the starting point.
+16. **Camera feeds, cutting:** cut on sentence boundaries, never in the middle of a word, and hold every shot for at least about 2 seconds.
+17. **Camera feeds, graphics:** camera feeds have no burned-in graphics. Put name bars or the dual third on at each anchor's first M shot, and the Follow card once in the close.
