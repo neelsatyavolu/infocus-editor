@@ -35,16 +35,6 @@ fi
 git push --quiet origin HEAD "$TAG"
 gh release create "$TAG" --generate-notes --verify-tag
 
-# The Portal's Machines view links to releases/latest/download/InFocus-Editor-Setup.dmg, so every release
-# carries the setup app. It installs the latest editor itself, so the last notarized build is fine to reuse.
-DMG="setup-app/dist/InFocus Editor Setup.dmg"
-if [ -f "$DMG" ] && xcrun stapler validate -q "$DMG" 2>/dev/null; then
-  tmp=$(mktemp -d)
-  cp "$DMG" "$tmp/InFocus-Editor-Setup.dmg"
-  gh release upload "$TAG" "$tmp/InFocus-Editor-Setup.dmg" --clobber
-  rm -rf "$tmp"
-else
-  printf 'release: no notarized %s; build it with setup-app/build.sh --release, then\n' "$DMG" >&2
-  printf '  gh release upload %s <dmg copied as InFocus-Editor-Setup.dmg>\n' "$TAG" >&2
-fi
+# The setup DMG is never attached here: it bundles the InFocus graphics package, whose working files carry
+# real student names, and releases are public. Share it privately (the Drive).
 echo "Released $TAG. Editors update within about 15 minutes (or pin a version in the Portal)."
