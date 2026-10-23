@@ -1,5 +1,8 @@
 import asyncio
+import contextlib
 import subprocess
+
+import pytest
 
 from editor import main as main_mod
 from editor.main import EXIT_AUTH, LoopSettings, Worker
@@ -8,8 +11,40 @@ from editor.portal import AuthError, Claim, Command, HeartbeatReply, Health
 from editor.service import EXIT_RESTART
 from editor.worker import STANDBY, UNLINKED, RestartRequested
 from editor.updater import EXIT_UPDATED, RestartForUpdate, UpdateResult
+from editor.config import ConfigError
 
 FAST = LoopSettings(heartbeat_s=0.01, poll_s=0.01, doctor_s=1000, housekeeping_s=1000)
+
+
+async def test_failed_guard_keeps_heartbeat_and_remote_restart_available():
+    @contextlib.contextmanager
+    def failed_guard():
+        raise ConfigError("Guard failed; Repair needed")
+        yield  # pragma: no cover
+
+    portal = FakePortal(commands=[Command("restart1", "restart")])
+    w = worker(portal, None, session_guard=failed_guard)
+    with pytest.raises(RestartRequested):
+        await asyncio.wait_for(w.serve(), timeout=2)
+    assert portal.heartbeats
+    assert not portal.healths[-1].ok
+    assert "Guard failed; Repair needed" in portal.healths[-1].problems
+    assert portal.claim_calls == 0
+
+
+async def test_dead_guard_blocks_new_jobs_and_reports_failure():
+    from unittest.mock import Mock
+
+    portal = FakePortal([claim()])
+    w = worker(portal, None)
+    w._guard_process = Mock()
+    w._guard_process.poll.return_value = 1
+    await w.refresh_health(force=True)
+    assert not await w.step()
+    await w.heartbeat_once()
+    assert portal.claim_calls == 0
+    assert not portal.healths[-1].ok
+    assert "protection stopped" in portal.healths[-1].problems[-1]
 
 
 class FakePortal:

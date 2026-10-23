@@ -175,6 +175,14 @@ app() {
     if [ "$PERSONAL" = 1 ]; then set_config machine_kind personal; else set_config machine_kind dedicated; fi
   fi
   (cd "$REPO" && uv sync --frozen --quiet) || die "Couldn't set up the editor's Python environment."
+  if [ "$PERSONAL" = 0 ]; then
+    local guard="$DATA_DIR/InFocus Editor Guard.app/Contents"
+    mkdir -p "$guard/MacOS"
+    cp "$REPO/install/logout-guard.plist" "$guard/Info.plist"
+    swiftc "$REPO/install/logout-guard.swift" -o "$guard/MacOS/logout-guard.new" \
+      || die "Couldn't build the logout/shutdown guard."
+    mv "$guard/MacOS/logout-guard.new" "$guard/MacOS/logout-guard"
+  fi
   step app "done" "Editor program ready"
 }
 

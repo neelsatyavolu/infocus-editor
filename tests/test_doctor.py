@@ -7,6 +7,7 @@ AC = "Now drawing from 'AC Power'\n"
 
 def probes(**kw):
     base = dict(
+        guard_ok=lambda path: True,
         which=lambda tool: f"/usr/bin/{tool}",
         exists=lambda path: True,
         free_bytes=lambda path: 500 * 1024**3,
@@ -23,6 +24,22 @@ def probes(**kw):
 def test_healthy_mac_has_no_problems(tmp_path):
     health = check(make_config(tmp_path), probes())
     assert health.ok and health.problems == ()
+
+
+def test_missing_logout_guard_blocks_dedicated_but_not_personal(tmp_path):
+    from dataclasses import replace
+    from editor.logout_guard import GUARD_PATH
+
+    cfg = make_config(tmp_path)
+    probe = probes(exists=lambda path: path != cfg.data_dir / GUARD_PATH)
+    assert check(cfg, probe).problems == (
+        "The logout/shutdown guard is missing. Open InFocus Editor Setup and choose Repair.",)
+    assert check(replace(cfg, machine_kind="personal"), probe).ok
+
+
+def test_guard_that_exists_but_cannot_launch_blocks_jobs(tmp_path):
+    assert check(make_config(tmp_path), probes(guard_ok=lambda path: False)).problems == (
+        "The logout/shutdown guard couldn't start. Open InFocus Editor Setup and choose Repair.",)
 
 
 def test_no_connected_ai_account_blocks(tmp_path):

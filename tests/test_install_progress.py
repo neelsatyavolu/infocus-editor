@@ -82,6 +82,12 @@ def sandbox(tmp_path):
     ''')
     for name in ("npm", "npx", "node", "security", "curl", "xcode-select"):
         script(fake / name, f'echo "{name} $*" >> "{log}"\n')
+    script(fake / "swiftc", f'''
+        echo "swiftc $*" >> "{log}"
+        [ "${{FAKE_SWIFTC_FAIL:-0}}" = 1 ] && exit 1
+        while [ "$1" != -o ]; do shift; done
+        touch "$2"
+    ''')
     # launchd: nothing loaded (print fails); FAKE_BOOTSTRAP_FAILS=n makes the first n bootstraps fail with EIO.
     script(fake / "launchctl", f'''
         echo "launchctl $*" >> "{log}"
@@ -117,6 +123,27 @@ def install(sb, *extra, env=None):
 
 def steps(lines):
     return [tuple(l.split(" ", 3)[1:3]) for l in lines if l.startswith("@@step")]
+
+
+def test_guard_is_built_for_dedicated_install(sandbox):
+    proc, _ = install(sandbox)
+    assert proc.returncode == 0, proc.stderr
+    contents = sandbox["data"] / "InFocus Editor Guard.app" / "Contents"
+    assert (contents / "MacOS" / "logout-guard").exists()
+    assert (contents / "Info.plist").exists()
+
+
+def test_guard_compile_failure_stops_install(sandbox):
+    proc, _ = install(sandbox, env={"FAKE_SWIFTC_FAIL": "1"})
+    assert proc.returncode != 0
+    assert "Couldn't build the logout/shutdown guard" in proc.stdout + proc.stderr
+    assert "launchctl bootstrap" not in sandbox["log"].read_text()
+
+
+def test_personal_install_does_not_build_guard(sandbox):
+    proc, _ = install(sandbox, "--personal")
+    assert proc.returncode == 0, proc.stderr
+    assert "swiftc " not in sandbox["log"].read_text()
 
 
 def add_tools(sb, *names):
@@ -206,14 +233,21 @@ def test_homebrew_owned_by_another_account_stops_personal_setup(sandbox):
     assert "osascript" not in (sandbox["log"].read_text() if sandbox["log"].exists() else "")
 
 
-def test_update_mode_never_prompts_links_or_reloads(sandbox):
-    install(sandbox)
+@pytest.mark.parametrize("personal", [False, True])
+def test_update_mode_never_prompts_links_or_reloads(sandbox, personal):
+    install(sandbox, *(["--personal"] if personal else []))
+    if not personal:
+        config = sandbox["data"] / "config.toml"
+        config.write_text(config.read_text().replace('machine_kind = "dedicated"\n', ""))
+        shutil.rmtree(sandbox["data"] / "InFocus Editor Guard.app")
     before = sandbox["log"].read_text()
     proc = subprocess.run(["/bin/bash", str(sandbox["app"] / "install" / "user-setup.sh"), "--update",
                            "--unattended", "--progress", "--home", str(sandbox["data"])],
                           env=sandbox["env"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
     assert proc.returncode == 0, proc.stderr
     new_calls = sandbox["log"].read_text()[len(before):]
+    assert ("swiftc " in new_calls) == (not personal)
+    assert (sandbox["data"] / "InFocus Editor Guard.app").exists() == (not personal)
     assert "link" not in new_calls and "launchctl" not in new_calls
     assert proc.stdout.splitlines()[-1] == "@@done"
     assert not (sandbox["data"] / ".plist-changed").exists()

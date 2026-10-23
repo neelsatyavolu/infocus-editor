@@ -13,6 +13,7 @@ from typing import Callable, Iterable
 
 from editor.config import Config
 from editor.portal import Health
+from editor.logout_guard import GUARD_PATH, guard_available
 
 MIN_FREE_GB = 60
 WHISPER_MODEL = Path.home() / ".cache" / "whisper-cpp" / "ggml-large-v3-turbo.bin"
@@ -48,6 +49,7 @@ def _ffmpeg_encoders() -> str:
 
 @dataclass(frozen=True)
 class Probes:
+    guard_ok: Callable[[Path], bool] = guard_available
     which: Callable[[str], str | None] = shutil.which
     exists: Callable[[Path], bool] = Path.exists
     free_bytes: Callable[[Path], int] = lambda p: shutil.disk_usage(_existing(p)).free
@@ -99,6 +101,11 @@ def check(cfg: Config, probes: Probes = Probes()) -> Health:
     if not probes.connected_backends():
         blocking.append(NO_BACKEND_PROBLEM)
     blocking += _tools(probes)
+    if cfg.machine_kind == "dedicated":
+        if not probes.exists(cfg.data_dir / GUARD_PATH):
+            blocking.append("The logout/shutdown guard is missing. Open InFocus Editor Setup and choose Repair.")
+        elif not probes.guard_ok(cfg.data_dir):
+            blocking.append("The logout/shutdown guard couldn't start. Open InFocus Editor Setup and choose Repair.")
     if probes.which("ffmpeg") and "h264_videotoolbox" not in probes.ffmpeg_encoders():
         warnings.append(VIDEOTOOLBOX_WARNING)
     if not probes.exists(WHISPER_MODEL):

@@ -78,6 +78,24 @@ Under the hood the app runs `install/install.sh --unattended --progress --repo <
 
 ## Managed from the Portal
 
+Dedicated editing Macs run **InFocus Editor Guard** alongside the service. It cancels normal macOS logout,
+restart and shutdown requests, including between jobs. Setup and updates build it locally with Swift; no new
+admin permission is needed. If it cannot start, the worker reports a blocking health problem and stays online
+for remote Repair or updates. The update health check launches the helper to catch failures before accepting
+an update. Personal computers
+keep their normal logout and shutdown behavior. Sleep settings still use the existing power controls.
+
+For intentional maintenance, stop the service in Terminal on the editing Mac with
+`launchctl bootout gui/$(id -u)/com.infocus.editor`, then wait two seconds before logging out or shutting down.
+Run `launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.infocus.editor.plist"` to start it again
+without logging out. The guard exits when the worker stops or crashes. It cannot block forced shutdowns,
+power loss, kernel crashes or forced administrator/MDM restarts. After an interruption, the editor needs a
+logged-in user session again.
+Protection pauses briefly while the editor service restarts for an update or a Portal restart command.
+
+The guard uses AppKit's [`applicationShouldTerminate`](https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:))
+callback to cancel termination. `caffeinate` only prevents sleep.
+
 - **Settings:**
   - **AI accounts:** connect, and set their order (`agentOrder`, which overrides `agents` in config.toml).
   - **House rules:** sent with every job and written into the job folder. A remembered fix sends the updated text back to the Portal, which is the record.

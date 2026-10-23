@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from editor.commands import IMMEDIATE, CommandAck, health_report
+from editor.config import ConfigError
 from editor.portal import AuthError, Claim, Command, Health
 from editor.shell import SHELL_PREFIX
 from editor.updater import CHECK_EVERY_S, RestartForUpdate, UpdateResult
@@ -43,6 +44,7 @@ class Worker:
                  set_agent_order: Callable[[tuple[str, ...]], None] = lambda order: None,
                  commands: Any = None, machine: dict[str, str] | None = None,
                  before_exit: Callable[[], None] = lambda: None,
+                 session_guard: Callable = contextlib.nullcontext,
                  shell: Callable[[str, str], Awaitable[tuple[bool, str]]] | None = None,
                  settings: LoopSettings = LoopSettings(), clock: Callable[[], float] = time.monotonic):
         self._portal = portal
@@ -57,6 +59,9 @@ class Worker:
         self._commands = commands
         self._machine = machine
         self._before_exit = before_exit
+        self._session_guard = session_guard
+        self._guard_process = None
+        self._guard_problem: str | None = None
         self._shell = shell
         self._shell_tasks: set[asyncio.Task] = set()
         self._s = settings
@@ -86,15 +91,28 @@ class Worker:
             except Exception as e:  # noqa: BLE001
                 self.health = Health(False, (f"The health check crashed: {e}",))
             self._health_at = self._clock()
+        problem = self._protection_problem()
+        if problem and problem not in self.health.problems:
+            self.health = Health(False, (*self.health.problems, problem))
         return self.health
+
+    def _protection_problem(self) -> str | None:
+        if self._guard_problem:
+            return self._guard_problem
+        if self._guard_process is not None and self._guard_process.poll() is not None:
+            return "Logout/shutdown protection stopped. Restart the editor from Machines."
+        return None
 
     def reported_health(self) -> Health:
         problems = list(self.health.problems)
+        protection = self._protection_problem()
+        if protection and protection not in problems:
+            problems.append(protection)
         if self.update_problem:
             problems.append(self.update_problem)
         if self.unlinked:
             return Health(False, (UNLINKED, *problems))
-        return Health(self.health.ok, tuple(problems))
+        return Health(self.health.ok and not protection, tuple(problems))
 
     def status_lines(self) -> tuple[str, ...]:
         if self.unlinked:
@@ -295,6 +313,16 @@ class Worker:
         return True
 
     async def serve(self) -> None:
+        with contextlib.ExitStack() as stack:
+            try:
+                self._guard_process = stack.enter_context(self._session_guard())
+            except ConfigError as e:
+                # Stay reachable for remote Repair/update; health blocks new edits.
+                self._guard_problem = str(e)
+                log.error("%s", e)
+            await self._serve()
+
+    async def _serve(self) -> None:
         await self.refresh_health(force=True)
         beat = asyncio.create_task(self.heartbeat_forever())
         try:

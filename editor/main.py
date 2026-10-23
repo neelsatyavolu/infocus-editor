@@ -37,6 +37,7 @@ def build_worker():
     from editor.housekeeping import cleanup_job_dirs
     from editor.keychain import Keychain
     from editor.link import TOKEN_ITEM, device_name
+    from editor.logout_guard import logout_guard
     from editor.pairing import Pairing
     from editor.portal import PortalClient
     from editor.runner import RunnerDeps, run_job
@@ -62,6 +63,7 @@ def build_worker():
                   commands=CommandRunner(cfg.repo_root, cfg.data_dir, work_root=cfg.work_root),
                   machine={"name": device_name(), "kind": cfg.machine_kind},
                   before_exit=lambda: reload_if_changed(cfg.data_dir),
+                  session_guard=partial(logout_guard, cfg.data_dir, cfg.machine_kind),
                   shell=RemoteShell(cfg.machine_kind, lambda: keychain.get(TOKEN_ITEM)),
                   housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days))
 
