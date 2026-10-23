@@ -228,7 +228,8 @@ async def test_codex_command_env_and_session_id(tmp_path, monkeypatch):
     cmd = runner.cmd
     assert cmd[:2] == ["codex", "exec"] and "--json" in cmd and "--skip-git-repo-check" in cmd
     assert "--dangerously-bypass-approvals-and-sandbox" in cmd
-    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="medium"'
+    assert cmd[cmd.index("-m") + 1] == "gpt-6.1-sol"
+    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="low"'
     assert cmd[cmd.index("-C") + 1] == str(cfg.repo_root)
     assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "--add-dir"] == [str(job), str(cfg.package_dir),
                                                                            str(cfg.data_dir)]

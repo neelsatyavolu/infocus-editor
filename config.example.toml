@@ -7,7 +7,7 @@ portal_url = "https://portal.example.org"
 # Optional (defaults shown)
 # package_dir = "~/InFocusEditor/package"   # the graphics package (setup copies it here)
 # work_root = "~/InFocusEditor/jobs"
-# agents = ["claude", "codex", "grok"]      # fallback order if the Portal hasn't set one
+# agents = ["codex", "claude", "grok"]      # fallback order if the Portal hasn't set one
 # max_turns = 300
 # max_budget_usd = 10                       # optional Claude spend cap (estimated)
 # run_timeout_minutes = 75

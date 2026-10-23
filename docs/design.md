@@ -56,7 +56,7 @@ Codex and Grok sign-ins live in `<data dir>/codex-home/auth.json` and `<data dir
 
 - **Backends:** the editor can drive Claude (Agent SDK with a `claude setup-token` OAuth token), Codex (`codex exec`) or Grok (`grok -p` headless).
 - **Instructions:** every backend gets the same instruction: read `.claude/skills/infocus-show/SKILL.md` and follow it. Only shell and file tools are needed, with no MCP servers.
-- **Order and fallback:** `agents = ["claude", "codex", "grok"]` in config.toml sets the order. The first connected backend runs the job. If it hits a usage limit or its sign-in fails, the job restarts on the next connected one, and the switch is recorded as a decision.
+- **Order and fallback:** The Portal's agent order (or `agents` in config.toml, default `["codex", "claude", "grok"]`) sets the order. The first connected backend runs the job. If it hits a usage limit or its sign-in fails, the job restarts on the next connected one, and the switch is recorded as a decision.
 - **Signing in:** see "Connecting an AI subscription" in `portal-api.md`. You sign in on your own computer, and the credential reaches the Mac sealed to the Mac's key.
 - **Permissions:** the agents run with approvals off. The safety boundary is the editor's dedicated standard (non-admin) macOS account, and the runner also refuses commands that reach for root.
 

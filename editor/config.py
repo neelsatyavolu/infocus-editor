@@ -17,6 +17,8 @@ from typing import Callable, Mapping
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_UPDATE_REPO = "neelsatyavolu/infocus-editor"
 BACKEND_NAMES = ("claude", "codex", "grok")
+# Until the Portal sends its agentOrder: Codex (gpt-6.1-sol low) first, then Claude (Sonnet 5.5 high).
+DEFAULT_AGENTS = ("codex", "claude", "grok")
 
 Keychain = Callable[[str], "str | None"]
 
@@ -98,7 +100,7 @@ class Config:
         if not settings.get("portal_url"):
             raise ConfigError(f"config.toml needs `portal_url` ({data_dir / 'config.toml'}); "
                               "open InFocus Editor Setup and choose Repair.")
-        agents = tuple(str(a) for a in settings.get("agents", BACKEND_NAMES))
+        agents = tuple(str(a) for a in settings.get("agents", DEFAULT_AGENTS))
         unknown = [a for a in agents if a not in BACKEND_NAMES]
         if unknown or not agents:
             raise ConfigError(f"config.toml `agents` must list some of {', '.join(BACKEND_NAMES)}")

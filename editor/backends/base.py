@@ -10,7 +10,7 @@ from typing import Callable, Protocol
 
 OnEvent = Callable[[str], None]
 
-# Reasoning effort for Codex and Grok, pinned so a CLI update can't change it (Claude sets its own in claude.py).
+# Reasoning effort for Grok, pinned so a CLI update can't change it (Claude and Codex set their own).
 EFFORT = "medium"
 
 LIMIT_RE = re.compile(

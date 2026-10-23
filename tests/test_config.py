@@ -45,7 +45,7 @@ def test_default_agent_order_and_unknown_agent(tmp_path):
     home = tmp_path / "data"
     write_toml(home, 'portal_url = "https://p.example.org"\npackage_dir = "/pkg"\n')
     cfg = Config.load(env={"INFOCUS_EDITOR_HOME": str(home)}, keychain=fake_keychain({"editor_token": "t"}))
-    assert cfg.agents == ("claude", "codex", "grok")
+    assert cfg.agents == ("codex", "claude", "grok")
     write_toml(home, 'portal_url = "https://p.example.org"\npackage_dir = "/pkg"\nagents = ["gpt"]\n')
     with pytest.raises(ConfigError):
         Config.load(env={"INFOCUS_EDITOR_HOME": str(home)}, keychain=fake_keychain({"editor_token": "t"}))

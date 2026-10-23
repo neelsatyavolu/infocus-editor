@@ -10,13 +10,18 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from editor.backends.base import EFFORT, AgentOutcome, BackendStatus, OnEvent, failure
+from editor.backends.base import AgentOutcome, BackendStatus, OnEvent, failure
 from editor.backends.cli import agent_env, parse_json_line, private_dir, read_auth
 from editor.backends.guard import codex_rules
 from editor.backends.proc import ProcessRunner, run_process
 from editor.config import Config
 from editor.joblog import Transcript, clip
 from editor.prompts import instruction
+
+# Pinned so a CLI update can't change them. The 2026-10-23 bake-off: gpt-6.1-sol low cut the golden show as well as
+# Claude Sonnet 5.5 high for about a quarter of the cost.
+MODEL = "gpt-6.1-sol"
+EFFORT = "low"
 
 CONFIG_TOML = (
     "# Written by infocus-editor before every run; edits here are replaced.\n"
@@ -62,7 +67,7 @@ class CodexBackend:
         return None if proc.returncode == 0 else "Codex says it isn't signed in; connect Codex again."
 
     def command(self, job_dir: Path, prompt: str, resume_id: str | None) -> list[str]:
-        common = ["--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox",
+        common = ["--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-m", MODEL,
                   "-c", f'model_reasoning_effort="{EFFORT}"']
         if resume_id:
             return [self._bin, "exec", "resume", *common, resume_id, prompt]
