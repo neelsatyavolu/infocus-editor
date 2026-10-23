@@ -134,7 +134,11 @@ def ensure_qr_tool():
 
 def read_qr(image):
     out = subprocess.run([ensure_qr_tool(), "read", str(image)], capture_output=True, text=True)
-    return json.loads(out.stdout) if out.returncode == 0 and out.stdout.strip() else []
+    if out.returncode != 0 or not out.stdout.strip():
+        return []
+    # Vision prints this diagnostic to stdout on macOS VMs before its valid JSON.
+    diagnostic = "E5RT encountered an STL exception. msg = On-device compilation within a VM only supports CPU currently.."
+    return json.loads(out.stdout.strip().removeprefix(diagnostic))
 
 
 def make_qr(text, out):

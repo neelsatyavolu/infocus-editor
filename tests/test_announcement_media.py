@@ -1,6 +1,7 @@
 """Announcement media (scripts/announcement_media.py): links from submissions, Drive rewrites, and QR codes."""
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -101,6 +102,22 @@ def test_qr_only_means_one_code_filling_the_image():
     assert am.qr_only([{"payload": "x", "box": [300, 300, 2700, 2700]}], (3000, 3000))
     assert not am.qr_only([{"payload": "x", "box": [818, 1291, 1031, 1503]}], (2550, 3300))
     assert not am.qr_only([{"payload": "x", "box": [0, 0, 900, 900]}, {"payload": "y", "box": [0, 0, 9, 9]}], (1000, 1000))
+
+
+@pytest.mark.parametrize("prefix", ["", "E5RT encountered an STL exception. msg = On-device compilation within a VM only supports CPU currently.."])
+def test_read_qr_accepts_json_after_known_vm_diagnostic(monkeypatch, prefix):
+    codes = [{"payload": "https://example.com/join", "box": [0, 0, 100, 100]}]
+    monkeypatch.setattr(am, "ensure_qr_tool", lambda: "qr-tool")
+    monkeypatch.setattr(am.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess([], 0, prefix + json.dumps(codes)))
+    assert am.read_qr("test.png") == codes
+
+
+@pytest.mark.parametrize("output", ["not JSON", "[] trailing data"])
+def test_read_qr_still_rejects_invalid_output(monkeypatch, output):
+    monkeypatch.setattr(am, "ensure_qr_tool", lambda: "qr-tool")
+    monkeypatch.setattr(am.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess([], 0, output))
+    with pytest.raises(json.JSONDecodeError):
+        am.read_qr("test.png")
 
 
 @needs_swift
