@@ -90,6 +90,7 @@ def build_brief(cfg: Config, claim: Claim, paths: JobPaths, recordings: Path, so
         "source": str(source) if source else None,
         "anchors": list(b.get("anchors") or []),
         "announcements": list(b.get("announcements") or []),
+        "submissions": list(b.get("submissions") or []),
         "pastCards": list(b.get("pastCards") or []),
         "roster": list(b.get("roster") or []),
         "packages": packages,

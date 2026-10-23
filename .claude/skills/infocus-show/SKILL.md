@@ -35,6 +35,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   - `anchors`: who the Portal scheduled to anchor, often a nickname or first name ("EJ"); not always who's on air
   - `roster`: the full names of everyone in the class, for name bars and for working out who's on air
   - `announcements`: the script's announcement text, in reading order
+  - `submissions`: the announcements as people submitted them for this show, each `{ text, mediaLink, moreInfo }` (`mediaLink` is the file or link they attached, `moreInfo` their note to InFocus; either can be null). The source for card media (step 4). Older briefs don't have it.
   - `pastCards`: announcement cards from earlier shows, newest first, each `{ showDate, title, points, script }` (`script` is the announcement text the card was made from, or null). The house style for cards you write yourself.
   - `packages`: the queued packages, in order, each with `localPath` and `toss`
   - `note`: the producer's instructions for this edit (typed at Start or Redo), or null
@@ -63,7 +64,7 @@ Read `brief.houseRules` before anything else. Its rules beat your own judgment, 
 
 ## Workflow (`kind: "edit"`)
 
-Keep a running list of decisions in `<showDir>/decisions.json` as you go: `[{kind, detail, flagged}]`, where `kind` is one of `name`, `typo`, `take`, `package`, `fixup`, `card_written`, `card_mismatch`, `lyrics` or `other`. You copy it into `result.json` at the end.
+Keep a running list of decisions in `<showDir>/decisions.json` as you go: `[{kind, detail, flagged}]`, where `kind` is one of `name`, `typo`, `take`, `package`, `fixup`, `card_written`, `card_mismatch`, `card_media`, `lyrics` or `other`. You copy it into `result.json` at the end.
 
 ### 1. Check the recordings
 Read `recordings.json`. The worker has already dropped SD captures and duplicates (`skipped`) and recorded each as a decision. Probe the files with `ffprobe`; expect 1920×1080 at 59.94. If nothing usable is left, write `result.json` with `abort` set to one of these plain reasons, and stop:
@@ -92,6 +93,12 @@ A program recording's `report.md` lists:
 - a still of every filmed TV card
 
 Then **open and view** the contact sheets in `analysis/sheets/` and every card still in `analysis/cards/`, and read the on-air text from them. A filmed card's text has to come from its still, because the anchors paraphrase it. A side-camera shot whose TV shows only the standby logo had no card filmed: you write that card (step 4).
+
+**Submitted media:** when `brief.submissions` is set, fetch what people attached (about 20 s):
+```
+python3 $S/announcement_media.py fetch <brief.json> <showDir>/analysis/media
+```
+It prints one line per link: an image (with the QR codes found in it), a web page, or why it couldn't be fetched. Open and view each image it saved.
 
 If no recording has an M shot, or none has speech, abort with "This doesn't look like a show recording (no anchor shot)" or "(no speech)".
 
@@ -136,6 +143,13 @@ Apply these rules (plus the house rules) and record each as a decision:
   - **Write it like the past cards:** copy the style of `brief.pastCards` (and `references/past-cards.md` when there are few): a short title naming the club or event (2–5 words), then 2–4 points of 2–7 words each. Points are fragments, not sentences: when, where, then the one thing to know or do. Leave out anything the card doesn't need (who's organizing, background, "come have fun").
   - Record each as `card_written` (not flagged) with the card's text.
 - **Card vs script:** compare each filmed card with `brief.announcements`. If they differ beyond a typo, keep the filmed text and flag `card_mismatch`.
+- **Card media (QR codes):** a card can show one image on its right, and the only image worth it is a QR code viewers scan (a flyer or poster is unreadable on the TV). Match each card to its submission in `brief.submissions` by its text, then decide from that submission, `analysis/media/media.json` and the filmed card:
+  - **A QR was attached** (an image with a QR code in `media.json`): put it on the card. If the image is just the QR (`qrOnly`), use the file as `image`. If it's a flyer with a QR in it, make a clean one from the code's payload: `python3 $S/announcement_media.py make "<payload>" <showDir>/analysis/media/<segment id>-qr.png`. A flyer with several codes: pick the one the announcement asks people to use (sign up, RSVP, tickets); if that's unclear, use none and flag it.
+  - **No QR attached, but the announcement or its note asks for one** ("scan the QR", "put the QR code on screen"), or the attached link is itself the sign-up, RSVP, form or ticket page: make a QR of that link. Never make one for a link that isn't in the submission.
+  - **The filmed card had a QR:** the fresh card needs it too. Use the submission's, or read it from the card still (`python3 $S/announcement_media.py read <still>`) and make a clean one.
+  - **Otherwise no image:** a flyer or poster with no QR, a photo, or an informational link the announcement doesn't ask viewers to visit.
+  - When the announcement asks for a QR that couldn't be fetched (a Drive file not shared publicly, a Canva link) and there's no link to make one from, leave the image off and flag `card_media` saying which file to share.
+  - Record each QR you place as `card_media` (not flagged), naming where it came from and its link.
 - **Packages:** use `brief.packages`, in order, as `file` segments at each throw (`"path": <localPath>`, `"audio": "match"`). On each, set `"toss_said"` to what the anchor says in the throw you kept, as clean sentences (fix whisper's spellings of names from `brief.roster` and the package's `toss`); the Portal uses it for the YouTube description when the package has no written toss. Never pull in a file from anywhere else.
   - **A throw with no package** (`brief.packages` is empty, or the anchors throw to more packages than it has): use a `placeholder` segment there and flag a `package` decision that asks for it, naming what was thrown to, e.g. "The anchors throw to a package (\"…our reporters have more on the mosque field trip\") but none is queued for this show. Queue it with its final cut in the Publishing Queue, then press Redo automatic edit." The Portal links that flag to the Publishing Queue and leads the review email with it.
   - **A queued package nobody throws to:** leave it out and flag a `package` decision saying which one, so a producer can check it wasn't meant for this show.

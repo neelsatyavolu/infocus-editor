@@ -227,8 +227,9 @@ async def test_cards_go_to_the_portal_and_past_cards_reach_the_brief(tmp_path):
 
     claim = edit_claim()
     past = [{"showDate": "2026-10-06", "title": "College Fair", "points": ["Monday"], "script": None}]
-    claim = Claim(claim.kind, claim.job_id, claim.show_date, claim.version, {**claim.brief, "pastCards": past},
-                  claim.downloads)
+    submitted = [{"text": "Scan the QR to join!", "mediaLink": "https://drive.google.com/file/d/X/view", "moreInfo": None}]
+    claim = Claim(claim.kind, claim.job_id, claim.show_date, claim.version,
+                  {**claim.brief, "pastCards": past, "submissions": submitted}, claim.downloads)
     deps = deps_for(tmp_path, FakeAgent(finish_with_cards))
     await run_job(deps, claim)
     assert deps.portal.completed["checks"]["cards"] == [
@@ -237,6 +238,7 @@ async def test_cards_go_to_the_portal_and_past_cards_reach_the_brief(tmp_path):
     assert deps.portal.completed["checks"]["tosses"] == ["The club fair is Friday. Our reporter has more."]
     brief = json.loads((deps.cfg.work_root / f"{DATE}-j1" / "brief.json").read_text())
     assert brief["pastCards"] == past
+    assert brief["submissions"] == submitted
 
 
 async def test_status_json_changes_are_forwarded_once_each(tmp_path):

@@ -13,7 +13,7 @@
         "type": "object",
         "required": ["kind", "detail", "flagged"],
         "properties": {
-          "kind": {"enum": ["name", "typo", "take", "package", "fixup", "card_written", "card_mismatch", "lyrics", "other"]},
+          "kind": {"enum": ["name", "typo", "take", "package", "fixup", "card_written", "card_mismatch", "card_media", "lyrics", "other"]},
           "detail": {"type": "string", "maxLength": 300},
           "flagged": {"type": "boolean"}
         },

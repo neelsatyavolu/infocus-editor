@@ -17,7 +17,7 @@ A full worked example (the 10-06-2026 show) is in `example-edl.json`.
     { "id": "college_visits", "kind": "source", "cam": "L", "in": 6260, "out": 7494,
       "card": { "title": "College visits tomorrow",
                 "points": ["Michigan State 9:05AM", "Northeastern University, 9:50 AM"],
-                "image": "/path/to/qr.png",                  // optional (QR etc.), shown on the right
+                "image": "/path/to/qr.png",                  // optional QR code (announcement_media.py), shown on the right
                 "kicker": "Announcements" } },                // optional, default "Announcements"
     { "id": "package", "kind": "placeholder", "seconds": 5, "label": "Spirit Week Day 1 Recap",
       "note": "Package goes here (not in the recording)" },    // a slate is rendered for it
