@@ -89,7 +89,10 @@ For intentional maintenance, stop the service in Terminal on the editing Mac wit
 `launchctl bootout gui/$(id -u)/com.infocus.editor`, then wait two seconds before logging out or shutting down.
 Run `launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.infocus.editor.plist"` to start it again
 without logging out. The guard exits when the worker stops or crashes. It cannot block forced shutdowns,
-power loss, kernel crashes or forced administrator/MDM restarts. After an interruption, the editor needs a
+power loss, kernel crashes or forced administrator/MDM restarts. The next root
+setup removes a weekday shutdown from the power schedule (the studio Mac's
+6:00 PM shutdown) and leaves the 7:00 AM power-on. `install/prevent-shutdown.sh`
+then runs every 30 seconds so a shutdown that comes back is cleared again. After an interruption, the editor needs a
 logged-in user session again.
 Protection pauses briefly while the editor service restarts for an update or a Portal restart command.
 

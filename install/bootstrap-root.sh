@@ -114,6 +114,18 @@ write_marker() {
   mv "$MARKER.tmp" "$MARKER"
 }
 
+# Dedicated Macs only. Clears a weekday shutdown schedule (the studio Mac's
+# 6:00 PM power-off) and keeps clearing it if something puts the schedule back.
+install_prevent_shutdown() {
+  local plist=/Library/LaunchDaemons/com.infocus.editor.prevent-shutdown.plist
+  install -o root -g wheel -m 755 "$REPO_DIR/install/prevent-shutdown.sh" "$ROOT_DIR/bin/prevent-shutdown"
+  install -o root -g wheel -m 644 "$REPO_DIR/install/com.infocus.editor.prevent-shutdown.plist" "$plist"
+  launchctl bootout system/com.infocus.editor.prevent-shutdown 2>/dev/null || true
+  launchctl bootstrap system "$plist"
+  "$ROOT_DIR/bin/prevent-shutdown" || true
+  log "shutdown schedule is cleared (7:00 AM power-on stays)"
+}
+
 mkdir -p "$ROOT_DIR"
 chown root:wheel "$ROOT_DIR"
 chmod 755 "$ROOT_DIR"
@@ -127,6 +139,7 @@ if [ "$PERSONAL" = 1 ]; then
   log "personal computer: leaving the power settings alone"
 else
   "$HELPER" apply-power
+  install_prevent_shutdown
 fi
 install_sudoers
 write_marker
