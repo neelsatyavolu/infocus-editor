@@ -10,7 +10,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 MODE=unsigned
-PORTAL="https://infocuspaly.com"
+PORTAL="https://infocusportal.com"
 PACKAGE="${INFOCUS_PACKAGE:-}"
 while [ $# -gt 0 ]; do
   case "$1" in

@@ -40,7 +40,7 @@ It runs:
   --repo Resources/infocus-editor.bundle --package-src Resources/package --portal <InFocusPortalURL>
 ```
 
-- **Portal address:** `InFocusPortalURL` is set in Info.plist at build time (default `https://infocuspaly.com`).
+- **Portal address:** `InFocusPortalURL` is set in Info.plist at build time (default `https://infocusportal.com`).
 - **No prompts:** `--unattended` never reads stdin. The admin step is the standard macOS dialog that `install.sh` already opens with `osascript … with administrator privileges`.
 - **Package:** `--package-src` copies the package to `~/InFocusEditor/package` if it isn't there yet.
 - **Linking:** after setup, the installer runs `infocus-editor link --progress`, which does the device-code flow in `portal-api.md`, before starting the launchd agent.

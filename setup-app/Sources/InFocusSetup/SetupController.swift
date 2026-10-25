@@ -11,7 +11,7 @@ struct AppConfig {
     let installerOverride: String?
 
     static func load(bundle: Bundle = .main, env: [String: String] = ProcessInfo.processInfo.environment) -> AppConfig {
-        let portal = (bundle.object(forInfoDictionaryKey: "InFocusPortalURL") as? String) ?? "https://infocuspaly.com"
+        let portal = (bundle.object(forInfoDictionaryKey: "InFocusPortalURL") as? String) ?? "https://infocusportal.com"
         return AppConfig(
             portalURL: portal,
             resources: bundle.resourceURL ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
