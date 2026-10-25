@@ -17,6 +17,8 @@ from typing import Callable, Mapping
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_UPDATE_REPO = "neelsatyavolu/infocus-editor"
 BACKEND_NAMES = ("claude", "codex", "grok")
+# The Portal's old addresses → its current one, so a config.toml written before the move keeps working.
+MOVED_PORTALS = {"https://infocuspaly.com": "https://infocusportal.com"}
 # Until the Portal sends its agentOrder: Codex (gpt-6.1-sol low) first, then Claude (Sonnet 5.5 high).
 DEFAULT_AGENTS = ("codex", "claude", "grok")
 
@@ -46,6 +48,12 @@ def _version(repo: Path = REPO_ROOT) -> str:
         return metadata.version("infocus-editor")
     except metadata.PackageNotFoundError:
         return "0.0.0"
+
+
+def portal_url(raw: str) -> str:
+    """config.toml's portal_url without a trailing slash, moved off an old Portal address."""
+    url = raw.strip().rstrip("/")
+    return MOVED_PORTALS.get(url.lower(), url)
 
 
 @dataclass(frozen=True)
@@ -110,7 +118,7 @@ class Config:
             raise ConfigError('config.toml `machine_kind` must be "dedicated" or "personal"')
         return cls(
             data_dir=data_dir,
-            portal_url=str(settings["portal_url"]).rstrip("/"),
+            portal_url=portal_url(str(settings["portal_url"])),
             package_dir=Path(str(settings.get("package_dir", data_dir / "package"))).expanduser(),
             work_root=Path(str(settings.get("work_root", data_dir / "jobs"))).expanduser(),
             agents=agents,

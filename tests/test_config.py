@@ -74,3 +74,9 @@ def test_machine_kind(tmp_path):
     write_toml(home, 'portal_url = "https://p.example.org"\nmachine_kind = "laptop"\n')
     with pytest.raises(ConfigError):
         Config.load(env={"INFOCUS_EDITOR_HOME": str(home)}, keychain=fake_keychain({}))
+
+
+def test_an_old_portal_address_moves_to_the_current_one():
+    from editor.config import portal_url
+    assert portal_url("https://infocuspaly.com/") == "https://infocusportal.com"
+    assert portal_url("https://portal.example.org") == "https://portal.example.org"
