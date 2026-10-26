@@ -76,7 +76,7 @@ def test_machine_kind(tmp_path):
         Config.load(env={"INFOCUS_EDITOR_HOME": str(home)}, keychain=fake_keychain({}))
 
 
-def test_an_old_portal_address_moves_to_the_current_one():
+def test_the_other_portal_address_moves_to_the_one_in_use():
     from editor.config import portal_url
-    assert portal_url("https://infocuspaly.com/") == "https://infocusportal.com"
+    assert portal_url("https://infocusportal.com/") == "https://infocuspaly.com"
     assert portal_url("https://portal.example.org") == "https://portal.example.org"
