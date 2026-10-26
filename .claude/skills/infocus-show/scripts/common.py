@@ -34,6 +34,42 @@ def package_dir(edl=None):
     return os.path.expanduser(path)
 
 
+# Seasonal looks. A theme has its own intro, outro, Follow card, TV standby and sets, installed inside the package
+# under Themes/<Name>/; its name bars and cards come from the package's graphics.html (?theme=<name>). "" is the
+# regular 2026 look.
+THEMES = {
+    "": {
+        "intro": "03 Intro & Outro/InFocus Intro 2026.mp4",
+        "outro": "03 Intro & Outro/InFocus Outro 2026.mp4",
+        "follow": "08 Follow InFocus/InFocus Follow Us.mov",
+        "standby": "09 TV Standby/InFocus TV Standby.png",
+        "middle": "04 Virtual Sets/InFocus Virtual Set 2026 - Middle.png",
+    },
+    "halloween": {
+        "intro": "Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4",
+        "outro": "Themes/Halloween/03 Intro & Outro/InFocus Outro Halloween 2026.mp4",
+        "follow": "Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov",
+        "standby": "Themes/Halloween/09 TV Standby/InFocus TV Standby (Halloween).png",
+        "middle": "Themes/Halloween/04 Virtual Sets/InFocus Virtual Set Halloween 2026 - Middle.png",
+    },
+}
+
+
+def theme_name(edl=None):
+    """The show's theme: edl.json "theme" when present (an empty one picks the regular look), else $INFOCUS_THEME,
+    else "" (the regular look). render_graphics.mjs reads it the same way."""
+    edl = edl or {}
+    name = str(edl["theme"] if edl.get("theme") is not None else os.environ.get("INFOCUS_THEME") or "").strip().lower()
+    if name not in THEMES:
+        raise RuntimeError(f'Unknown theme "{name}" (known: {", ".join(t for t in THEMES if t)})')
+    return name
+
+
+def theme_file(key, edl=None, package=None):
+    """Absolute path of one of the theme's package files ("intro", "outro", "follow", "standby", "middle")."""
+    return os.path.join(package or package_dir(edl), THEMES[theme_name(edl)][key])
+
+
 def seek_args(frame, fps):
     """Frame-exact positioning: seek to just before frame j (about a second ahead of the wanted frame), then pick
     by index from there. Returns (ffmpeg input args, index of the wanted frame among the decoded frames)."""

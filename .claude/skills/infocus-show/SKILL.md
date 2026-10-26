@@ -49,6 +49,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   ```
   export INFOCUS_PACKAGE="<brief.packageDir>" INFOCUS_JOB_DIR="<the job folder>"
   ```
+  For a themed show (see "Seasonal themes"), also `export INFOCUS_THEME=halloween`.
 - **Progress:** at the start of every step, run `python $S/progress.py <stage> "<short message>"`. The stages are `analyze`, `graphics`, `audio`, `build`, `render`, `check` and `fix`. The Portal shows this line to producers.
 - **Output:** finish every run by writing `<job folder>/result.json` (format below), even when things went wrong.
 - **Tools:** shell, reading and writing files, and viewing image files. Nothing else. On the machine: ffmpeg/ffprobe, whisper-cli with `~/.cache/whisper-cpp/ggml-large-v3-turbo.bin`, Node with Playwright's Chromium (it drives the package's `graphics.html`), and Swift for the Vision matte (compiled on first use).
@@ -155,10 +156,11 @@ Apply these rules (plus the house rules) and record each as a decision:
   - **A queued package nobody throws to:** leave it out and flag a `package` decision saying which one, so a producer can check it wasn't meant for this show.
 - **Package music:** transcribe or listen to it. Explicit lyrics get a flagged `lyrics` decision.
 - **Producer's instructions:** if `brief.note` is set, follow it where it's about this edit, even over a house rule, and record what you did as `other`. If something in it can't be done (a take that doesn't exist), do the closest thing and flag it.
+- **Theme:** decide it before step 2 (see "Seasonal themes") and record it as `other`.
 
 ### 5. Fresh-graphics checklist, then write `<showDir>/edl.json`
 The format and rules are in `references/edl.md`; a complete example is in `references/example-edl.json`.
-- **Top of the file:** set `"show": "InFocus Show MM-DD-YYYY"`, `"package": <brief.packageDir>`, and `"recordings"`: the `recordings` list copied from `recordings.json` (every take and overlay refers to it). An older brief with only `source` sets `"source"` instead.
+- **Top of the file:** set `"show": "InFocus Show MM-DD-YYYY"`, `"package": <brief.packageDir>`, `"theme"` for a themed show (see "Seasonal themes"; leave it out otherwise), and `"recordings"`: the `recordings` list copied from `recordings.json` (every take and overlay refers to it). An older brief with only `source` sets `"source"` instead.
 - **Every take** names its source: `"recording": "r1"` and `"cam"`, with `in`/`out` on that recording's timeline. In a program recording `cam` is the camera the analysis saw (it picks which TV a card goes on); in a multicam recording it's the camera file the take reads.
 - **Every overlay** names its `"recording"` too: `at` is a frame of that recording.
 
@@ -168,7 +170,7 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
   - Set `at = first − 2` HD frames and `covers: [first, last]`.
   - Set `duration` so it runs as long as the old one did. Its out-animation must cover the old one's: duration ms = old length in seconds × 1000, plus the out-animation.
   - If a longer name made the old plate wider, raise `render.scale` (see `references/gotchas.md`).
-- **Every old Follow card** gets the package `08 Follow InFocus/InFocus Follow Us.mov` as a `file` overlay with `covers`.
+- **Every old Follow card** gets the theme's Follow card (normally `{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) as a `file` overlay with `covers`.
 - **Any logo bug or graphic fired by mistake** gets a clean-plate `patch` (from "When the switcher misfired").
 - **The switcher's intro, logo card and end card are cut.**
 - An edit with any old graphic still visible is not finished.
@@ -176,9 +178,28 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 **Graphics nobody filmed** (multicam recordings, and program recordings filmed without graphics): place them yourself, so every show has the same graphics:
 - **Every L/R take gets a `card`**: a written card (step 4).
 - **A dual third** (a `render` overlay with `"type": "dual"`, no `covers`) on the first two-shot of the open, about 1 s in, with both anchors' names (step 4) in the order they sit, left then right. Use separate name bars instead only when the anchors never share a two-shot. Skip it only when the chosen takes already have an old one you're covering.
-- **The Follow card** (`{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) once in the close, unless the close already has an old one you're covering.
+- **The Follow card** (the theme's; normally `{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) once in the close, unless the close already has an old one you're covering.
 
-**Every show:** the first segment is `{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4` and the last is `{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4`.
+**Every show:** the first segment is the theme's intro and the last is its outro (normally `{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4` and `{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4`).
+
+## Seasonal themes
+
+A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look, so nothing else about the edit changes.
+
+- **When:** only when `brief.note` or a house rule says the show is themed, for example "Halloween show", "use the Halloween graphics" or "spooky theme". Nothing else turns a theme on: not the show date, not costumes on air, not Halloween sets in the recording. Without one of those, use the regular look.
+- **Themes:** `halloween` is the only one.
+- **Set it everywhere:** `export INFOCUS_THEME=halloween`, and `"theme": "halloween"` at the top of `edl.json`. `render_graphics.mjs`, `verify_render.py` and the rest read it from there.
+- **Its files** (paths in `edl.json`):
+
+  | | Halloween |
+  |---|---|
+  | Intro (first segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4` |
+  | Outro (last segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Outro Halloween 2026.mp4` |
+  | Follow card | `{PACKAGE}/Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov` |
+
+  Name bars, dual thirds and cards come from `render_graphics.mjs` in the theme's colors.
+- **If the theme's files aren't installed** (no `{PACKAGE}/Themes/Halloween/`, or `render_graphics.mjs` stops saying the package's graphics.html has no such theme): use the regular look: `unset INFOCUS_THEME`, set `"theme": ""` in `edl.json`, switch the intro, outro and Follow paths back to the regular files, and flag an `other` decision saying the Halloween graphics aren't on this editing Mac.
+- **The recording:** a show may be filmed on the Halloween virtual sets, with Halloween graphics burned in, whatever look you output. The analysis recognises those sets and finds pumpkin overlays as well as green ones, and every old graphic still gets covered.
 
 ### 6. Graphics, mattes and audio
 Run `progress graphics`, then these two in parallel, in the background:

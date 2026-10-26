@@ -9,6 +9,7 @@ A full worked example (the 10-06-2026 show) is in `example-edl.json`.
   "fps": "60000/1001",                         // the recording's frame rate = the timeline's. All frame numbers use it.
   "source": "/path/to/job/source.mov",          // brief.source
   "package": "/path/to/InFocus 2026 Package",  // brief.packageDir; {PACKAGE} below expands to it
+  // "theme": "halloween",                     // optional seasonal look (SKILL.md "Seasonal themes"): its intro, outro and Follow paths change too
   "audio": { "peak_dbfs": -6, "dialogue_lufs": -16, "channels": [0, 1] },   // master_audio.py; channels = mic channels in the recording
   "segments": [                                // in program order
     { "id": "intro", "kind": "file", "path": "{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4" },

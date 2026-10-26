@@ -37,10 +37,11 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from analyze import SH, SW, classify, green_mask, middle_set  # noqa: E402
+from analyze import SH, SW, brand_mask, classify, middle_set  # noqa: E402
 from check_render import loudness_rows  # noqa: E402
 from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, is_multicam, load_edl,  # noqa: E402
-                    overlay_file, package_dir, probe, recording_of, recordings, seek_args, segment_source)
+                    overlay_file, package_dir, probe, recording_of, recordings, seek_args, segment_source, THEMES,
+                    theme_name)
 
 RULES = {1: "switcher_frames", 2: "cover_span", 3: "cover_shape", 4: "uncovered", 5: "intro_outro", 6: "audio",
          7: "basics", 8: "side_set", 9: "shot_length", 10: "av_sync", 11: "recording_range"}
@@ -50,7 +51,6 @@ SYNC_SR = 8000       # rule 10 analysis rate
 SYNC_SEARCH = 6      # rule 10: frames searched either way
 SYNC_MIN_CONF = 4.0  # rule 10: correlation peak / mean, below which a window can't be judged
 STUDIO = ("M", "L", "R")
-INTRO_FILE, OUTRO_FILE = "InFocus Intro 2026.mp4", "InFocus Outro 2026.mp4"
 ZONES = {"name bar (left)": (NAMEBAR_BAND[0], NAMEBAR_BAND[1], W // 2, NAMEBAR_BAND[3]),
          "name bar (right)": (W // 2, NAMEBAR_BAND[1], NAMEBAR_BAND[2], NAMEBAR_BAND[3]),
          "Follow card": FOLLOW_BOX}
@@ -323,17 +323,17 @@ def read_frames(recording, first, last, box):
 
 
 def graphic_look(frame, ref):
-    """Pixels that differ from the clean reference and look like a package graphic (dark plate, brand green,
-    white text), plus the brand-green ones among them."""
+    """Pixels that differ from the clean reference and look like a package graphic (dark plate, an accent color,
+    white text), plus the accent-colored ones among them."""
     changed = np.abs(frame.astype(np.int16) - ref.astype(np.int16)).max(2) > 40
-    g = green_mask(frame)
+    g = brand_mask(frame)
     return changed & ((frame.max(2) < 45) | g | (frame.min(2) > 200)), changed & g
 
 
 def old_graphic_region(crops, ref):
     """Where the old switcher graphic sits while it's up: graphic-looking pixels present in at least half the
-    frames, grouped into blobs; only blobs carrying brand green count. Persistence drops anchors moving about, and
-    the green test drops dark hair or shirts. Returns a mask of the crop, or None."""
+    frames, grouped into blobs; only blobs carrying the accent color count. Persistence drops anchors moving about,
+    and the color test drops dark hair or shirts. Returns a mask of the crop, or None."""
     hits = np.zeros(ref.shape[:2], np.float32)
     green = np.zeros(ref.shape[:2], np.float32)
     for f in crops:
@@ -497,13 +497,15 @@ def rule_intro_outro(edl, analysis=None):
     failures = []
     segs = edl["segments"]
 
+    intro, outro = (os.path.basename(THEMES[theme_name(edl)][k]) for k in ("intro", "outro"))
+
     def is_file(seg, name):
         return seg and seg["kind"] == "file" and os.path.basename(seg.get("path", "")) == name
-    if not segs or not is_file(segs[0], INTRO_FILE):
-        failures.append(fail(5, f"the show must open with the package intro ({INTRO_FILE})",
+    if not segs or not is_file(segs[0], intro):
+        failures.append(fail(5, f"the show must open with the package intro ({intro})",
                              segment=segs[0]["id"] if segs else None))
-    if not segs or not is_file(segs[-1], OUTRO_FILE):
-        failures.append(fail(5, f"the show must end with the package outro ({OUTRO_FILE})",
+    if not segs or not is_file(segs[-1], outro):
+        failures.append(fail(5, f"the show must end with the package outro ({outro})",
                              segment=segs[-1]["id"] if segs else None))
     if analysis is not None:
         failures += rule_switcher_regions(edl, analysis)

@@ -24,7 +24,7 @@ import soundfile as sf
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import FOLLOW_BOX, NAMEBAR_BAND, SCREENS, WHISPER_MODEL, fps_value, package_dir, probe  # noqa: E402
+from common import FOLLOW_BOX, NAMEBAR_BAND, SCREENS, THEMES, WHISPER_MODEL, fps_value, package_dir, probe  # noqa: E402
 
 SW, SH = 480, 270                      # analysis resolution (1080p / 4)
 Q = 4
@@ -52,11 +52,31 @@ def green_mask(f):
     return (f[..., 1] > f[..., 0] + 40) & (f[..., 1] > f[..., 2] + 20) & (f[..., 1] > 90)
 
 
+def pumpkin_mask(f):
+    """The Halloween accent: Pumpkin #FF7A1A and the Deep Pumpkin #B4440A role strip (skin tones stay out)."""
+    f = f.astype(np.int16)
+    return (f[..., 0] > f[..., 1] + 80) & (f[..., 1] > f[..., 2] + 30) & (f[..., 0] > 150)
+
+
+def brand_mask(f):
+    """Pixels in a package overlay's accent color, regular green or Halloween pumpkin. What the switcher burned in
+    doesn't depend on the look this edit outputs, so both are always looked for."""
+    return green_mask(f) | pumpkin_mask(f)
+
+
 def middle_set(package=None):
-    """The empty Middle set at analysis resolution: what an M two-shot looks like behind the anchors."""
-    png = os.path.join(package or package_dir(), "04 Virtual Sets", "InFocus Virtual Set 2026 - Middle.png")
-    mid = cv2.cvtColor(cv2.imread(png), cv2.COLOR_BGR2RGB)
-    return cv2.resize(mid, (SW, SH), interpolation=cv2.INTER_AREA).astype(np.int16)
+    """The empty Middle set(s) at analysis resolution: what an M two-shot looks like behind the anchors. One per
+    installed theme (stacked), so a two-shot on a seasonal set is still an M shot whatever the brief says."""
+    pkg = package or package_dir()
+    sets = []
+    for theme in THEMES.values():
+        png = os.path.join(pkg, theme["middle"])
+        if os.path.exists(png):
+            mid = cv2.cvtColor(cv2.imread(png), cv2.COLOR_BGR2RGB)
+            sets.append(cv2.resize(mid, (SW, SH), interpolation=cv2.INTER_AREA).astype(np.int16))
+    if not sets:
+        raise RuntimeError(f"No Middle set in the package ({os.path.join(pkg, THEMES['']['middle'])})")
+    return np.stack(sets)
 
 
 SCREEN_SLICES = {k: rect(v) for k, v in SCREENS.items()}
@@ -68,7 +88,8 @@ def classify(f, mid):
     dark = mx < 45
     if f.mean() < 8:
         return "BLACK"
-    if np.median(np.abs(f.astype(np.int16) - mid).max(2)) < 18:
+    mids = mid if mid.ndim == 4 else mid[None]
+    if min(np.median(np.abs(f.astype(np.int16) - m).max(2)) for m in mids) < 18:
         return "M"
     sl = SCREEN_SLICES
     dl, dr, dall = dark[sl["L"]].mean(), dark[sl["R"]].mean(), dark.mean()
@@ -121,7 +142,7 @@ def scan_video(path, fps, n_frames, package=None):
         mx = f.max(2)
         cam = classify(f, mid)
         st["cam"].append(cam)
-        o = green_mask(f)                        # package overlays carry brand green (strip, icon ring, Follow body)
+        o = brand_mask(f)                        # package overlays carry the accent (strip, icon ring, Follow body)
         st["o_left"].append(int(o[lb].sum()))
         st["o_right"].append(int(o[rb].sum()))
         st["o_follow"].append(int(o[fb].sum()))
