@@ -4,7 +4,8 @@
 //   and ends on the TV Standby frame.  -> "<segment id> - Monitor.mov"
 // - Overlays with a "render" config (dual / lower / follow …), at the overlay's fps (default 29.97). -> "<overlay id>.mov"
 // - Placeholder slates for missing packages. -> "<segment id> - Slate.png"
-// The package folder comes from edl.json "package", else $INFOCUS_PACKAGE.
+// The package folder comes from edl.json "package", else $INFOCUS_PACKAGE. edl.json "theme" (e.g. "halloween") renders
+// the package's seasonal look (graphics.html?theme=…); unset is the regular 2026 look.
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +19,8 @@ const home = (p) => p.replace(/^~/, process.env.HOME);
 const PACKAGE = home(edl.package ?? process.env.INFOCUS_PACKAGE ?? "");
 if (!PACKAGE) { console.error('No package folder: set "package" in edl.json or INFOCUS_PACKAGE'); process.exit(2); }
 const GFX_SRC = path.join(PACKAGE, "_Working Files", "Graphics Source");
+const THEME = String(edl.theme ?? process.env.INFOCUS_THEME ?? "").trim().toLowerCase();
+const PAGE = pathToFileURL(path.join(GFX_SRC, "graphics.html")).href + (THEME ? `?theme=${encodeURIComponent(THEME)}` : "");
 const { openPage, renderClip } = await import(path.join(GFX_SRC, "render.mjs"));
 const OUT = path.join(showDir, "Graphics");
 const rate = (f) => (String(f).includes("/") ? f.split("/").reduce((a, b) => a / b) : Number(f));
@@ -43,14 +46,23 @@ async function openBundledPage() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
   page.on("console", (m) => { if (m.type() === "warning" || m.type() === "error") console.warn(`[graphics] ${m.text()}`); });
-  await page.goto(pathToFileURL(path.join(GFX_SRC, "graphics.html")).href);
+  await page.goto(PAGE);
   return { browser, page };
 }
 
-const { browser, page } = await openBundledPage().catch((e) => {
+const { browser, page } = await openBundledPage().catch(async (e) => {
   console.warn(`Playwright's Chromium didn't start (${e.message.split("\n")[0]}); using Google Chrome.`);
-  return openPage();
+  const opened = await openPage();
+  await opened.page.goto(PAGE);
+  return opened;
 });
+// A themed render needs the theme in the package's graphics.html (its CSS block and assets/<theme>/ logos);
+// an older package would quietly render the regular look.
+if (THEME && !(await page.evaluate(() => document.documentElement.dataset.theme))) {
+  console.error(`The package's graphics.html has no "${THEME}" theme; update the package (Themes/ and Graphics Source).`);
+  await browser.close();
+  process.exit(3);
+}
 try {
   for (const seg of edl.segments) {
     if (only && seg.id !== only) continue;

@@ -92,7 +92,7 @@ git bundle verify -q "$RES/infocus-editor.bundle" >/dev/null 2>&1 || git bundle 
 # 5. The trimmed graphics package (only what the skill reads).
 say "Copying the trimmed graphics package"
 mkdir -p "$RES/package/_Working Files"
-for item in "README.md" "01 Logos" "02 Fonts" "03 Intro & Outro" "04 Virtual Sets" "08 Follow InFocus" "09 TV Standby"; do
+for item in "README.md" "01 Logos" "02 Fonts" "03 Intro & Outro" "04 Virtual Sets" "08 Follow InFocus" "09 TV Standby" "Themes"; do
   [ -e "$PACKAGE/$item" ] && cp -R "$PACKAGE/$item" "$RES/package/"
 done
 [ -d "$PACKAGE/_Working Files/Graphics Source" ] && cp -R "$PACKAGE/_Working Files/Graphics Source" "$RES/package/_Working Files/"
