@@ -17,8 +17,9 @@ from typing import Callable, Mapping
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_UPDATE_REPO = "neelsatyavolu/infocus-editor"
 BACKEND_NAMES = ("claude", "codex", "grok")
-# The Portal's old addresses → its current one, so a config.toml written before the move keeps working.
-MOVED_PORTALS = {"https://infocuspaly.com": "https://infocusportal.com"}
+# The Portal's other address → the one it uses. infocuspaly.com is the main one again: the school network
+# blocks infocusportal.com (newly registered), so a config.toml written with it moves back.
+MOVED_PORTALS = {"https://infocusportal.com": "https://infocuspaly.com"}
 # Until the Portal sends its agentOrder: Codex (gpt-6.1-sol low) first, then Claude (Sonnet 5.5 high).
 DEFAULT_AGENTS = ("codex", "claude", "grok")
 
