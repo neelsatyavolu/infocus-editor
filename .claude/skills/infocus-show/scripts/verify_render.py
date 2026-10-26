@@ -322,22 +322,22 @@ def read_frames(recording, first, last, box):
     return frames
 
 
-def graphic_look(frame, ref, theme=""):
-    """Pixels that differ from the clean reference and look like a package graphic (dark plate, the theme's accent,
+def graphic_look(frame, ref):
+    """Pixels that differ from the clean reference and look like a package graphic (dark plate, an accent color,
     white text), plus the accent-colored ones among them."""
     changed = np.abs(frame.astype(np.int16) - ref.astype(np.int16)).max(2) > 40
-    g = brand_mask(frame, theme)
+    g = brand_mask(frame)
     return changed & ((frame.max(2) < 45) | g | (frame.min(2) > 200)), changed & g
 
 
-def old_graphic_region(crops, ref, theme=""):
+def old_graphic_region(crops, ref):
     """Where the old switcher graphic sits while it's up: graphic-looking pixels present in at least half the
     frames, grouped into blobs; only blobs carrying the accent color count. Persistence drops anchors moving about,
     and the color test drops dark hair or shirts. Returns a mask of the crop, or None."""
     hits = np.zeros(ref.shape[:2], np.float32)
     green = np.zeros(ref.shape[:2], np.float32)
     for f in crops:
-        look, g = graphic_look(f, ref, theme)
+        look, g = graphic_look(f, ref)
         hits += look
         green += g
     steady = hits >= 0.5 * len(crops)
@@ -393,7 +393,6 @@ def rule_covers(edl, layout, analysis, show_dir):
     to_rec = src_to_rec(edl, layout)
     placed = {o["id"]: o for o in layout.get("overlays", [])}
     recording = expand(edl["source"], edl)
-    theme = theme_name(edl)
     failures = []
     for o in edl.get("overlays", []):
         if not o.get("covers"):
@@ -425,7 +424,7 @@ def rule_covers(edl, layout, analysis, show_dir):
         zone = tuple(v - v % 2 for v in zone)
         ref_crop = read_frames(recording, ref, ref, zone)
         crops = read_frames(recording, first, last, zone)
-        region = old_graphic_region(crops, ref_crop[0], theme) if ref_crop and crops else None
+        region = old_graphic_region(crops, ref_crop[0]) if ref_crop and crops else None
         if region is None:
             continue
         by_frame = dict(zip([f for f, _ in frames], crops))
@@ -433,7 +432,7 @@ def rule_covers(edl, layout, analysis, show_dir):
         outside = []
         for f, t in steady:
             cb = cover_box(t)
-            old = box_of(region & graphic_look(by_frame[f], ref_crop[0], theme)[0], zone[:2]) if f in by_frame else None
+            old = box_of(region & graphic_look(by_frame[f], ref_crop[0])[0], zone[:2]) if f in by_frame else None
             if cb and old and not (old[0] >= cb[0] - BOX_PAD and old[1] >= cb[1] - BOX_PAD and
                                    old[2] <= cb[2] + BOX_PAD and old[3] <= cb[3] + BOX_PAD):
                 outside.append((f, old, cb))

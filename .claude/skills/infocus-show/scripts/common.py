@@ -56,8 +56,10 @@ THEMES = {
 
 
 def theme_name(edl=None):
-    """The show's theme: edl.json "theme", else $INFOCUS_THEME, else "" (the regular look)."""
-    name = ((edl or {}).get("theme") or os.environ.get("INFOCUS_THEME") or "").strip().lower()
+    """The show's theme: edl.json "theme" when present (an empty one picks the regular look), else $INFOCUS_THEME,
+    else "" (the regular look). render_graphics.mjs reads it the same way."""
+    edl = edl or {}
+    name = str(edl["theme"] if edl.get("theme") is not None else os.environ.get("INFOCUS_THEME") or "").strip().lower()
     if name not in THEMES:
         raise RuntimeError(f'Unknown theme "{name}" (known: {", ".join(t for t in THEMES if t)})')
     return name

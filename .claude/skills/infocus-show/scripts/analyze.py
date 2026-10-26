@@ -24,8 +24,7 @@ import soundfile as sf
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (FOLLOW_BOX, NAMEBAR_BAND, SCREENS, THEMES, WHISPER_MODEL, fps_value, package_dir, probe,  # noqa: E402
-                    theme_name)
+from common import FOLLOW_BOX, NAMEBAR_BAND, SCREENS, THEMES, WHISPER_MODEL, fps_value, package_dir, probe  # noqa: E402
 
 SW, SH = 480, 270                      # analysis resolution (1080p / 4)
 Q = 4
@@ -59,9 +58,10 @@ def pumpkin_mask(f):
     return (f[..., 0] > f[..., 1] + 80) & (f[..., 1] > f[..., 2] + 30) & (f[..., 0] > 150)
 
 
-def brand_mask(f, theme=""):
-    """Pixels in the package overlays' accent color. A Halloween show may still carry a regular green graphic."""
-    return green_mask(f) | pumpkin_mask(f) if theme == "halloween" else green_mask(f)
+def brand_mask(f):
+    """Pixels in a package overlay's accent color, regular green or Halloween pumpkin. What the switcher burned in
+    doesn't depend on the look this edit outputs, so both are always looked for."""
+    return green_mask(f) | pumpkin_mask(f)
 
 
 def middle_set(package=None):
@@ -122,7 +122,6 @@ def classify_frames(path, every_s=2.0, package=None):
 
 def scan_video(path, fps, n_frames, package=None):
     mid = middle_set(package)
-    theme = theme_name()
     sl = SCREEN_SLICES
     lb = box((NAMEBAR_BAND[0], NAMEBAR_BAND[1], 960, NAMEBAR_BAND[3]))
     rb = box((960, NAMEBAR_BAND[1], NAMEBAR_BAND[2], NAMEBAR_BAND[3]))
@@ -143,7 +142,7 @@ def scan_video(path, fps, n_frames, package=None):
         mx = f.max(2)
         cam = classify(f, mid)
         st["cam"].append(cam)
-        o = brand_mask(f, theme)                 # package overlays carry the accent (strip, icon ring, Follow body)
+        o = brand_mask(f)                        # package overlays carry the accent (strip, icon ring, Follow body)
         st["o_left"].append(int(o[lb].sum()))
         st["o_right"].append(int(o[rb].sum()))
         st["o_follow"].append(int(o[fb].sum()))

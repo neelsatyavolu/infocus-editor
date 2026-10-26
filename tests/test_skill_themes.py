@@ -28,6 +28,7 @@ def test_theme_comes_from_the_edl_then_the_environment(monkeypatch):
     monkeypatch.setenv("INFOCUS_THEME", "halloween")
     assert common.theme_name({}) == "halloween"
     assert common.theme_name({"theme": "halloween"}) == "halloween"
+    assert common.theme_name({"theme": ""}) == ""       # an explicit regular look beats the environment
 
 
 def test_an_unknown_theme_is_refused():
@@ -83,12 +84,11 @@ def _swatch(*colors):
     return np.array([colors], dtype=np.uint8)
 
 
-def test_pumpkin_counts_as_an_overlay_only_on_a_halloween_show():
+def test_green_and_pumpkin_graphics_count_as_overlays_but_skin_and_oak_dont():
     pumpkin, deep, green = (255, 122, 26), (180, 68, 10), (11, 110, 62)
     skin_light, skin_dark, oak = (224, 172, 140), (141, 85, 36), (200, 150, 110)
     f = _swatch(pumpkin, deep, green, skin_light, skin_dark, oak)
-    assert analyze.brand_mask(f, "halloween")[0].tolist() == [True, True, True, False, False, False]
-    assert analyze.brand_mask(f, "")[0].tolist() == [False, False, True, False, False, False]
+    assert analyze.brand_mask(f)[0].tolist() == [True, True, True, False, False, False]
 
 
 def test_rule_5_wants_the_themes_intro_and_outro():

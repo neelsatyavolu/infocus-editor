@@ -19,7 +19,7 @@ const home = (p) => p.replace(/^~/, process.env.HOME);
 const PACKAGE = home(edl.package ?? process.env.INFOCUS_PACKAGE ?? "");
 if (!PACKAGE) { console.error('No package folder: set "package" in edl.json or INFOCUS_PACKAGE'); process.exit(2); }
 const GFX_SRC = path.join(PACKAGE, "_Working Files", "Graphics Source");
-const THEME = String(edl.theme ?? process.env.INFOCUS_THEME ?? "").trim().toLowerCase();
+const THEME = String(edl.theme ?? process.env.INFOCUS_THEME ?? "").trim().toLowerCase();   // as common.py theme_name()
 const PAGE = pathToFileURL(path.join(GFX_SRC, "graphics.html")).href + (THEME ? `?theme=${encodeURIComponent(THEME)}` : "");
 const { openPage, renderClip } = await import(path.join(GFX_SRC, "render.mjs"));
 const OUT = path.join(showDir, "Graphics");

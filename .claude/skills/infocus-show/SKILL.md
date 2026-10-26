@@ -49,7 +49,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   ```
   export INFOCUS_PACKAGE="<brief.packageDir>" INFOCUS_JOB_DIR="<the job folder>"
   ```
-  For a themed show (see "Seasonal themes"), also `export INFOCUS_THEME=halloween` before step 2.
+  For a themed show (see "Seasonal themes"), also `export INFOCUS_THEME=halloween`.
 - **Progress:** at the start of every step, run `python $S/progress.py <stage> "<short message>"`. The stages are `analyze`, `graphics`, `audio`, `build`, `render`, `check` and `fix`. The Portal shows this line to producers.
 - **Output:** finish every run by writing `<job folder>/result.json` (format below), even when things went wrong.
 - **Tools:** shell, reading and writing files, and viewing image files. Nothing else. On the machine: ffmpeg/ffprobe, whisper-cli with `~/.cache/whisper-cpp/ggml-large-v3-turbo.bin`, Node with Playwright's Chromium (it drives the package's `graphics.html`), and Swift for the Vision matte (compiled on first use).
@@ -188,7 +188,7 @@ A themed show uses a seasonal look for every graphic: intro, outro, name bars, d
 
 - **When:** only when `brief.note` or a house rule says the show is themed, for example "Halloween show", "use the Halloween graphics" or "spooky theme". Nothing else turns a theme on: not the show date, not costumes on air, not Halloween sets in the recording. Without one of those, use the regular look.
 - **Themes:** `halloween` is the only one.
-- **Set it everywhere:** `export INFOCUS_THEME=halloween` before analysing (the old graphics in a themed recording are pumpkin, not green), and `"theme": "halloween"` at the top of `edl.json`. `render_graphics.mjs`, `verify_render.py` and the rest read it from there.
+- **Set it everywhere:** `export INFOCUS_THEME=halloween`, and `"theme": "halloween"` at the top of `edl.json`. `render_graphics.mjs`, `verify_render.py` and the rest read it from there.
 - **Its files** (paths in `edl.json`):
 
   | | Halloween |
@@ -198,8 +198,8 @@ A themed show uses a seasonal look for every graphic: intro, outro, name bars, d
   | Follow card | `{PACKAGE}/Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov` |
 
   Name bars, dual thirds and cards come from `render_graphics.mjs` in the theme's colors.
-- **If the theme's files aren't installed** (no `{PACKAGE}/Themes/Halloween/`, or `render_graphics.mjs` stops saying the package's graphics.html has no such theme): use the regular look and flag an `other` decision saying the Halloween graphics aren't on this editing Mac.
-- **The recording:** a Halloween show may be filmed on the Halloween virtual sets. The analysis recognises those sets as well as the regular ones, whatever the theme.
+- **If the theme's files aren't installed** (no `{PACKAGE}/Themes/Halloween/`, or `render_graphics.mjs` stops saying the package's graphics.html has no such theme): use the regular look: `unset INFOCUS_THEME`, set `"theme": ""` in `edl.json`, switch the intro, outro and Follow paths back to the regular files, and flag an `other` decision saying the Halloween graphics aren't on this editing Mac.
+- **The recording:** a show may be filmed on the Halloween virtual sets, with Halloween graphics burned in, whatever look you output. The analysis recognises those sets and finds pumpkin overlays as well as green ones, and every old graphic still gets covered.
 
 ### 6. Graphics, mattes and audio
 Run `progress graphics`, then these two in parallel, in the background:
