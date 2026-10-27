@@ -23,6 +23,13 @@ from editor.prompts import instruction
 MODEL = "gpt-6.1-sol"
 EFFORT = "low"
 
+# What MODEL's requests would cost on the API, standard tier, USD per 1M tokens (developers.openai.com/api/docs/
+# pricing, 2026-10-27). The edit runs on a ChatGPT plan, so this is an estimate to compare with Claude's, not a bill.
+# A request over 272K input tokens is billed at the long-context rates for the whole request.
+PRICES = {"input": 2.00, "cached": 0.10, "cache_write": 2.50, "output": 10.00}
+LONG_PRICES = {"input": 4.00, "cached": 0.20, "cache_write": 5.00, "output": 15.00}
+LONG_CONTEXT = 272_000
+
 CONFIG_TOML = (
     "# Written by infocus-editor before every run; edits here are replaced.\n"
     "# No MCP servers: the editing agent uses shell and file tools only.\n"
@@ -84,17 +91,58 @@ class CodexBackend:
         self.prepare_home()
         state = _CodexState(resume_id)
         full_prompt = instruction(self._cfg.repo_root, prompt, with_rules=True)
+        earlier = len(_rollout_lines(self.home, resume_id))  # a resumed thread's rollout holds the earlier sessions
         with Transcript(job_dir, self.name) as transcript:
             result = await self._runner(self.command(job_dir, full_prompt, resume_id), env=self.env(),
                                         cwd=self._cfg.repo_root,
                                         on_line=lambda l: state.feed(l, on_event, transcript),
                                         cancel=cancel, on_stderr=transcript.stderr)
+        cost = rollout_cost(_rollout_lines(self.home, state.session_id), earlier)
         if result.cancelled or cancel.is_set():
-            return failure(self.name, state.session_id, "cancelled", cancelled=True)
+            return failure(self.name, state.session_id, "cancelled", cancelled=True, cost_usd=cost)
         if result.returncode == 0 and not state.error:
-            return AgentOutcome(ok=True, backend=self.name, session_id=state.session_id)
+            return AgentOutcome(ok=True, backend=self.name, session_id=state.session_id, cost_usd=cost)
         error = state.error or result.stderr_tail.strip()[-500:] or f"codex exited {result.returncode}"
-        return failure(self.name, state.session_id, f"Codex: {error}")
+        return failure(self.name, state.session_id, f"Codex: {error}", cost_usd=cost)
+
+
+def request_cost(usage: dict[str, Any]) -> float:
+    """API price of one model request from its token counts. input_tokens includes the cached and cache-write
+    tokens; output_tokens includes the reasoning tokens."""
+    def count(key: str) -> int:
+        n = usage.get(key)
+        return n if isinstance(n, int) and n > 0 else 0
+
+    inp, cached, write = count("input_tokens"), count("cached_input_tokens"), count("cache_write_input_tokens")
+    p = LONG_PRICES if inp > LONG_CONTEXT else PRICES
+    fresh = max(inp - cached - write, 0)
+    return (fresh * p["input"] + cached * p["cached"] + write * p["cache_write"]
+            + count("output_tokens") * p["output"]) / 1_000_000
+
+
+def rollout_cost(lines: list[str], skip: int = 0) -> float:
+    """API price of the requests in a thread's rollout after its first `skip` lines. Each request's token_count
+    carries its own usage (last_token_usage) and the thread's running total; codex can log the same count twice,
+    so a request counts only when the total moves."""
+    cost, total = 0.0, None
+    for i, line in enumerate(lines):
+        payload = (parse_json_line(line) or {}).get("payload") or {}
+        info = payload.get("info") if payload.get("type") == "token_count" else None
+        if not isinstance(info, dict) or info.get("total_token_usage") in (None, total):
+            continue
+        total = info["total_token_usage"]
+        if i >= skip and isinstance(info.get("last_token_usage"), dict):
+            cost += request_cost(info["last_token_usage"])
+    return cost
+
+
+def _rollout_lines(home: Path, thread_id: str | None) -> list[str]:
+    """The lines of the thread's rollout, which codex keeps at sessions/YYYY/MM/DD/rollout-<time>-<thread>.jsonl."""
+    path = next((home / "sessions").rglob(f"rollout-*-{thread_id}.jsonl"), None) if thread_id else None
+    try:
+        return path.read_text(errors="replace").splitlines() if path else []
+    except OSError:
+        return []
 
 
 class _CodexState:

@@ -12,7 +12,7 @@ from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, Result
 from editor.backends import BackendPool, parse_session_ref, session_ref
 from editor.backends.base import AgentOutcome, classify
 from editor.backends.claude import MODEL, ClaudeBackend, build_options, make_can_use_tool
-from editor.backends.codex import CodexBackend
+from editor.backends.codex import CodexBackend, request_cost
 from editor.backends.grok import GrokBackend
 from editor.backends.guard import bash_denied, codex_rules, grok_deny_rules
 from editor.backends.proc import ProcResult, run_process
@@ -262,6 +262,61 @@ async def test_codex_not_signed_in(tmp_path):
     backend = CodexBackend(make_config(tmp_path), runner=FakeRunner())
     assert backend.status().connected is False
     assert (await backend.run(tmp_path, "x", None, noop, asyncio.Event())).auth_failed
+
+
+def test_codex_request_cost_uses_api_prices():
+    small = {"input_tokens": 100_000, "cached_input_tokens": 60_000, "output_tokens": 2_000}
+    assert request_cost(small) == pytest.approx(0.08 + 0.006 + 0.02)
+    long = {"input_tokens": 300_000, "cached_input_tokens": 200_000, "cache_write_input_tokens": 10_000,
+            "output_tokens": 1_000}                                       # over 272K: long-context rates
+    assert request_cost(long) == pytest.approx(0.36 + 0.04 + 0.05 + 0.015)
+    assert request_cost({}) == 0
+
+
+def _token_count(total, last):
+    return {"type": "event_msg", "payload": {"type": "token_count",
+                                             "info": {"total_token_usage": total, "last_token_usage": last}}}
+
+
+class RolloutRunner(FakeRunner):
+    """Also appends token counts to the thread's rollout file, as codex does while it runs."""
+
+    def __init__(self, path, counts, lines):
+        super().__init__(lines)
+        self.path, self.counts = path, counts
+
+    async def __call__(self, cmd, **kw):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a") as f:
+            f.writelines(json.dumps(c) + "\n" for c in self.counts)
+        return await super().__call__(cmd, **kw)
+
+
+def _rollout(cfg, thread):
+    return cfg.codex_home / "sessions" / "2026" / "10" / "27" / f"rollout-2026-10-27T13-14-38-{thread}.jsonl"
+
+
+async def test_codex_reports_the_api_cost_of_its_requests(tmp_path):
+    a = {"input_tokens": 100_000, "cached_input_tokens": 60_000, "output_tokens": 2_000}
+    counts = [_token_count(a, a), _token_count(a, a)]                     # codex can log a count twice
+    backend, cfg = connected_codex(tmp_path, None)
+    backend._runner = RolloutRunner(_rollout(cfg, "t-1"), counts,
+                                    [{"type": "thread.started", "thread_id": "t-1"}, {"type": "turn.completed"}])
+    out = await backend.run(tmp_path, "x", None, noop, asyncio.Event())
+    assert out.ok and out.cost_usd == pytest.approx(request_cost(a))
+
+
+async def test_codex_resume_costs_only_its_own_requests(tmp_path):
+    a = {"input_tokens": 100_000, "cached_input_tokens": 60_000, "output_tokens": 2_000}
+    b = {"input_tokens": 120_000, "cached_input_tokens": 100_000, "output_tokens": 500}
+    backend, cfg = connected_codex(tmp_path, None)
+    path = _rollout(cfg, "t-1")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(_token_count(a, a)) + "\n")              # the earlier session's request
+    total = {k: a[k] + b[k] for k in a}
+    backend._runner = RolloutRunner(path, [_token_count(total, b)], [{"type": "turn.failed", "error": {}}])
+    out = await backend.run(tmp_path, "x", "t-1", noop, asyncio.Event())
+    assert not out.ok and out.cost_usd == pytest.approx(request_cost(b))
 
 
 def test_codex_verify_uses_login_status(tmp_path):
