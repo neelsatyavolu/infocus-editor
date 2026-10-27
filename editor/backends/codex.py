@@ -121,12 +121,29 @@ def request_cost(usage: dict[str, Any]) -> float:
 
 
 def rollout_cost(lines: list[str], skip: int = 0) -> float:
-    """API price of the requests in a thread's rollout after its first `skip` lines. Each request's token_count
-    carries its own usage (last_token_usage) and the thread's running total; codex can log the same count twice,
-    so a request counts only when the total moves."""
+    """API price of the requests in a thread's rollout after its first `skip` lines. Codex logs a
+    token_usage_record for every response, compaction included (codex-cli 0.164.0); rollouts without them fall
+    back to the token_count events."""
+    events = [parse_json_line(line) or {} for line in lines]
+    records = [(i, e["payload"]) for i, e in enumerate(events)
+               if e.get("type") == "token_usage_record" and isinstance(e.get("payload"), dict)]
+    if not records:
+        return _token_count_cost(events, skip)
+    cost, seen = 0.0, set()
+    for i, record in records:
+        response = record.get("response_id") or i
+        if response not in seen and i >= skip and isinstance(record.get("usage"), dict):
+            cost += request_cost(record["usage"])
+        seen.add(response)
+    return cost
+
+
+def _token_count_cost(events: list[dict[str, Any]], skip: int) -> float:
+    """Each token_count carries the latest request's usage (last_token_usage) and the thread's running total;
+    codex can log the same count twice, so a request counts only when the total moves."""
     cost, total = 0.0, None
-    for i, line in enumerate(lines):
-        payload = (parse_json_line(line) or {}).get("payload") or {}
+    for i, event in enumerate(events):
+        payload = event.get("payload") or {}
         info = payload.get("info") if payload.get("type") == "token_count" else None
         if not isinstance(info, dict) or info.get("total_token_usage") in (None, total):
             continue

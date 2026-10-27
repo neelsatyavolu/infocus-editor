@@ -12,7 +12,7 @@ from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, Result
 from editor.backends import BackendPool, parse_session_ref, session_ref
 from editor.backends.base import AgentOutcome, classify
 from editor.backends.claude import MODEL, ClaudeBackend, build_options, make_can_use_tool
-from editor.backends.codex import CodexBackend, request_cost
+from editor.backends.codex import CodexBackend, request_cost, rollout_cost
 from editor.backends.grok import GrokBackend
 from editor.backends.guard import bash_denied, codex_rules, grok_deny_rules
 from editor.backends.proc import ProcResult, run_process
@@ -317,6 +317,20 @@ async def test_codex_resume_costs_only_its_own_requests(tmp_path):
     backend._runner = RolloutRunner(path, [_token_count(total, b)], [{"type": "turn.failed", "error": {}}])
     out = await backend.run(tmp_path, "x", "t-1", noop, asyncio.Event())
     assert not out.ok and out.cost_usd == pytest.approx(request_cost(b))
+
+
+def test_codex_prices_every_response_record_once():
+    a = {"input_tokens": 100_000, "cached_input_tokens": 60_000, "output_tokens": 2_000}
+    compact = {"input_tokens": 300_000, "cached_input_tokens": 290_000, "output_tokens": 4_000}
+
+    def record(rid, usage):
+        return json.dumps({"type": "token_usage_record", "payload": {"response_id": rid, "usage": usage}})
+
+    lines = [record("r1", a), json.dumps(_token_count(a, a)),
+             record("r2", compact),                                      # compaction: a record, no token_count
+             record("r2", compact), record("r3", a)]
+    assert rollout_cost(lines) == pytest.approx(2 * request_cost(a) + request_cost(compact))
+    assert rollout_cost(lines, skip=3) == pytest.approx(request_cost(a))  # resumed after r2
 
 
 def test_codex_verify_uses_login_status(tmp_path):
