@@ -256,6 +256,7 @@ uv run --with numpy --with opencv-python --with pillow --with soundfile python $
    - **10, sync** (multicam): a camera's picture and the sound are more than a frame apart. The recording's offsets in `recordings.json` are wrong for that camera: don't edit them yourself; finish with `needsReview: true` and say which camera.
    - **11, recording range:** a take runs past the end of its recording. Pull its `out` in.
 3. **Fix and repeat:** fix in `edl.json`, re-run only the affected steps, rebuild to `brief.output`, and verify again.
+   - **Never work around a check.** Fix what it found (a take, a cover, a card) in `edl.json`. Never resize, recolor, re-time or swap a package graphic, and never change how `build_ffmpeg.py` encodes, to make a check pass: the checks already leave your fresh graphics out and allow for encoding. If a check still fails while the sheets look right, finish with `needsReview: true` and say which rule failed and why.
 4. **After two fix rounds,** if it still fails, finish anyway with `needsReview: true` and the remaining failures in `checks.failures`. Never loop forever.
 
 The worker runs `verify_render.py` again after you finish, so don't claim a pass you didn't get.

@@ -209,12 +209,34 @@ def test_portal_roles_override_detection_and_ignore_drops(tmp_path):
     base = speechy(60, seed=5)
     fs = Files(tmp_path / "src")
     a = fs.add(audio=clip(base, 1.0, 50), picture=["M"] * 25)
-    b = fs.add(audio=clip(base, 0.0, 50), picture=["M"] * 25, role="R")  # the producer knows better
+    b = fs.add(audio=clip(base, 0.0, 50), picture=["OTHER"] * 25, role="R")  # the picture can't say; the producer can
     c = fs.add(audio=speechy(80, seed=9), role="ignore")
     found = fs.detector(tmp_path / "show").detect([a, b, c])
     assert [f[:2] for f in files_of(found.data["recordings"][0])] == [("01.mov", "M"), ("02.mov", "R")]
     assert found.data["skipped"][0]["reason"] == "set to Ignore in the Portal"
-    assert "02.mov" not in fs.profiled
+
+
+def test_portal_side_cameras_the_picture_clearly_contradicts_follow_the_picture(tmp_path):
+    base = speechy(60, seed=6)
+    fs = Files(tmp_path / "src")
+    m = fs.add(audio=clip(base, 1.0, 50), picture=["M"] * 25, role="M")
+    shows_l = fs.add(audio=clip(base, 0.0, 50), picture=["L"] * 24 + ["M"], role="R")   # L and R swapped in the Portal
+    shows_r = fs.add(audio=clip(base, 0.5, 50), picture=["R"] * 25, role="L")
+    found = fs.detector(tmp_path / "show").detect([m, shows_l, shows_r])
+    roles = {name: role for name, role, _ in files_of(found.data["recordings"][0])}
+    assert roles == {"01.mov": "M", "02.mov": "L", "03.mov": "R"}
+    assert not found.needs_review                     # verify rule 8 still checks every side take
+    detail = next(d["detail"] for d in found.decisions if "02.mov" in d["detail"] or "(2)" in d["detail"])
+    assert "set to R in the Portal" in detail and "used it as L" in detail
+
+
+def test_a_portal_role_the_picture_only_leans_against_stays(tmp_path):
+    base = speechy(60, seed=7)
+    fs = Files(tmp_path / "src")
+    a = fs.add(audio=clip(base, 1.0, 50), picture=["M"] * 25)
+    b = fs.add(audio=clip(base, 0.0, 50), picture=["L"] * 15 + ["R"] * 10, role="R")   # R on 40%: not contradicted
+    found = fs.detector(tmp_path / "show").detect([a, b])
+    assert dict((n, r) for n, r, _ in files_of(found.data["recordings"][0]))["02.mov"] == "R"
 
 
 def test_legacy_source_paths_mean_auto():
@@ -337,3 +359,30 @@ async def test_ignored_files_are_not_in_downloads_and_are_reported(tmp_path):
     assert data["skipped"] == [{"path": "Shows/InFocus Show EDITED.mp4", "reason": "set to Ignore in the Portal"}]
     assert prepared.source == paths.src / "01.mov"
     assert [d["kind"] for d in prepared.decisions] == ["skip", "structure"]
+
+
+def test_a_feed_with_too_few_camera_frames_never_overrules_the_portal(tmp_path):
+    base = speechy(60, seed=8)
+    fs = Files(tmp_path / "src")
+    a = fs.add(audio=clip(base, 1.0, 50), picture=["OTHER"] * 24 + ["L"], role="M")   # "100% L" of one camera frame
+    b = fs.add(audio=clip(base, 0.0, 50), picture=["R"] * 25, role="R")
+    found = fs.detector(tmp_path / "show").detect([a, b])
+    assert dict((n, r) for n, r, _ in files_of(found.data["recordings"][0]))["01.mov"] == "M"
+
+
+def test_a_single_file_with_a_contradicted_portal_camera_follows_the_picture(tmp_path):
+    fs = Files(tmp_path / "src")
+    a = fs.add(audio=speechy(50, seed=10), picture=["M"] * 25, role="R")
+    found = fs.detector(tmp_path / "show").detect([a])
+    assert files_of(found.data["recordings"][0])[0][1] == "M"
+
+
+def test_same_named_files_are_corrected_separately(tmp_path):
+    base = speechy(60, seed=11)
+    fs = Files(tmp_path / "src")
+    m = fs.add(audio=clip(base, 1.0, 50), picture=["M"] * 25, role="M")
+    a = fs.add(audio=clip(base, 0.0, 50), picture=["L"] * 25, role="R", name="capture.mov")
+    b = fs.add(audio=clip(base, 0.5, 50), picture=["R"] * 25, role="L", name="capture.mov")
+    found = fs.detector(tmp_path / "show").detect([m, a, b])
+    roles = {n: r for n, r, _ in files_of(found.data["recordings"][0])}
+    assert roles == {"01.mov": "M", "02.mov": "L", "03.mov": "R"}

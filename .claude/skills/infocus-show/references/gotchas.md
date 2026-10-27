@@ -57,4 +57,5 @@
 - Name plates are square. Use Soft White `#ECEFEA`, never pure white.
 - The TVs idle on `09 TV Standby`, never on the blue key. Announcements start and end on that exact frame.
 - The Follow card sits top left. The outro uses the original music.
+- Package graphics go on at their own size and timing, always. A graphic is never made smaller or changed to get past a check (the studio check ignores the edit's own overlays).
 - Rule #1 from `_Working Files/NOTES.md`: change the *source* (`edl.json`, `graphics.html`), then re-render. Never hand-edit a render.

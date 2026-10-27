@@ -45,7 +45,7 @@ The steps below run on every file chosen for the job (1–12):
 
    - **Offsets:** in 59.94 frames, relative to each recording's common start (the first frame every file in it covers).
    - **Joins:** program recordings are never joined into one long file. The skill reads each recording separately.
-7. **Overrides:** a producer's role for a file in the Portal (anything but `auto`) replaces detection for that file. An `ignore` role drops the file.
+7. **Overrides:** a producer's role for a file in the Portal (anything but `auto`) replaces detection for that file. An `ignore` role drops the file. The one exception: when a camera role is clearly contradicted by the picture (the feed shows that camera on under 5% of its camera frames and another one on 60% or more, e.g. L and R swapped), the picture's camera is used and recorded as a decision, unless that would put two files on one camera.
 8. **Review triggers:** low-confidence grouping or role detection sets `needsReview`, with the reason as a decision.
 
 ## Portal

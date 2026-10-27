@@ -39,7 +39,7 @@ def _small(frame):
 def _mid(tmp_path):
     png = tmp_path / "pkg" / common.THEMES[""]["middle"]
     png.parent.mkdir(parents=True)
-    Image.fromarray(_studio(seed=11)).save(png)
+    Image.fromarray(np.random.default_rng(11).integers(0, 90, (1080, 1920, 3), dtype=np.uint8)).save(png)   # a darker set
     return analyze.middle_set(str(tmp_path / "pkg"))
 
 
