@@ -318,7 +318,7 @@ wheels = [
 
 [[package]]
 name = "infocus-editor"
-version = "0.2.18"
+version = "0.2.19"
 source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
