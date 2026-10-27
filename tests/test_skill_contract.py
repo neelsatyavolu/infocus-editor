@@ -92,6 +92,16 @@ def test_skill_never_asks_and_names_the_contract():
         assert needle in text, needle
 
 
+def test_skill_keeps_graphics_and_anchors_as_they_are():
+    """A real show came back with a half-size Follow card, then with the anchors recomposited at 86%, both to get
+    past the studio check. The skill must say plainly that neither is ever done."""
+    text = (SKILL / "SKILL.md").read_text()
+    for needle in ("Overlapping the anchors is fine", "The anchors stay as recorded", "Never work around a check",
+                   "reframe, rescale or recomposite the anchors", "resize, recolor, re-time, move or swap a package graphic",
+                   "change how `build_ffmpeg.py` encodes"):
+        assert needle in text, needle
+
+
 def test_skill_needs_only_shell_and_files():
     """Claude, Codex or Grok may follow SKILL.md: no editing app, no MCP tools, no tool names of one agent."""
     for path in [SKILL / "SKILL.md", *(SKILL / "references").glob("*.md")]:
