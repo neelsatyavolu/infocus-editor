@@ -68,7 +68,7 @@ def test_a_two_shot_on_either_installed_middle_set_is_m(tmp_path):
 
 def test_without_the_seasonal_set_only_the_regular_two_shot_is_m(tmp_path):
     pkg, sets = _package(tmp_path, "")
-    other = np.random.default_rng(9).integers(60, 200, (1080, 1920, 3), dtype=np.uint8)
+    other = np.random.default_rng(9).integers(160, 255, (1080, 1920, 3), dtype=np.uint8)   # another, brighter set
     mid = analyze.middle_set(pkg)
     assert mid.shape[0] == 1
     assert analyze.classify(_small(sets[""]), mid) == "M"

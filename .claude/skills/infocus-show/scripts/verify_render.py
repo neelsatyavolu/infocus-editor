@@ -122,11 +122,40 @@ def src_to_rec(edl, layout):
 
 # ---------- rule 1 ----------
 
-def render_cams(render, edl, layout):
-    """Camera class of every render frame inside a source take: {take id: [class, ...]} ("missing" past the end)."""
+def overlay_regions(edl, layout, show_dir):
+    """Where the edit's own graphics draw: [(rec_in, rec_out, analysis-resolution mask)], from each clip's drawn
+    pixels over its whole length. Rule 1 leaves them out, so no graphic, at any size, can fail a studio shot.
+    Opaque full-frame clips (fixups.py holds) are left in: they're the picture."""
+    clips = {o["id"]: o for o in edl.get("overlays", [])}
+    out = []
+    for x in layout.get("overlays", []):
+        o = clips.get(x["id"])
+        path = overlay_file(show_dir, o, edl) if o else None
+        if not path or not os.path.exists(path):
+            continue
+        boxes, _, opaque = alpha_boxes(path)
+        boxes = [b for b in boxes if b]
+        if opaque or not boxes:                 # a full-frame hold is the picture itself: it stays in the check
+            continue
+        x0, y0 = min(b[0] for b in boxes) - ZONE_PAD, min(b[1] for b in boxes) - ZONE_PAD
+        x1, y1 = max(b[2] for b in boxes) + ZONE_PAD, max(b[3] for b in boxes) + ZONE_PAD
+        mask = np.zeros((SH, SW), bool)
+        mask[max(0, y0 * SH // H):y1 * SH // H + 1, max(0, x0 * SW // W):x1 * SW // W + 1] = True
+        out.append((x["rec_in"], x["rec_out"], mask))
+    return out
+
+
+def render_cams(render, edl, layout, show_dir):
+    """Camera class of every render frame inside a source take: {take id: [class, ...]} ("missing" past the end).
+    The edit's own overlays are left out of each frame they're on."""
     segs = [s for s in layout["segments"] if s["kind"] == "source" and s["rec_out"] > s["rec_in"]]
     if not segs:
         return {}
+    regions = overlay_regions(edl, layout, show_dir)
+
+    def ignore(t):
+        on = [m for a, b, m in regions if a <= t < b]
+        return np.logical_or.reduce(on) if on else None
     mid = middle_set(package_dir(edl))
     expr = "+".join(f"between(n\\,{s['rec_in']}\\,{s['rec_out'] - 1})" for s in segs)
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-i", render, "-vf", f"select='{expr}',scale={SW}:{SH}:flags=area",
@@ -136,9 +165,9 @@ def render_cams(render, edl, layout):
     cams = {}
     for s in segs:
         seen = []
-        for _ in range(s["rec_in"], s["rec_out"]):
+        for t in range(s["rec_in"], s["rec_out"]):
             buf = p.stdout.read(size)
-            seen.append(classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid) if len(buf) == size
+            seen.append(classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid, ignore(t)) if len(buf) == size
                         else "missing")
         cams[s["id"]] = seen
     p.stdout.close()
@@ -583,7 +612,7 @@ def verify(show_dir, render=None, only=None):
         failures += basics
     has_video = not any("no video" in f["detail"] or "can't read" in f["detail"] for f in basics)
     has_audio = not any("no audio" in f["detail"] for f in basics)
-    cams = render_cams(render, edl, layout) if has_video and want & {1, 8} else {}
+    cams = render_cams(render, edl, layout, show_dir) if has_video and want & {1, 8} else {}
     if 1 in want:
         failures += rule_switcher_frames(cams, layout)
     if 5 in want:

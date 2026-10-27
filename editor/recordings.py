@@ -36,6 +36,7 @@ PROGRAM_FS_SHARE = 0.03
 PROGRAM_CUTS_PER_MIN = 2.0
 CAMERA_SHARE = 0.15  # a camera class counts as present in a feed above this share
 CLEAR_MAJORITY = 0.6
+CONTRADICTED = 0.05  # a Portal camera role the feed shows on under this share, against a clear majority, is a mix-up
 
 
 class DetectionError(Exception):
@@ -248,6 +249,7 @@ class Detector:
                 f.role = f.cand.role
             else:
                 auto.append((f, self._profile(f.cand.local)))
+        self._check_portal_cameras([files[i] for i in members if files[i].cand.role in CAMERAS])
         taken = {files[i].role for i in members if files[i].role in CAMERAS}
         cameras: list[tuple[_File, Profile]] = []
         for f, prof in auto:
@@ -272,6 +274,28 @@ class Detector:
             if not f.role:
                 f.role = "program"
                 self._flag("roles", f"Couldn't tell which camera {f.cand.name} shows; used it as a program feed")
+
+    def _check_portal_cameras(self, overridden: list[_File]) -> None:
+        """A producer's camera role stands unless the feed's picture clearly shows another camera (e.g. L and R
+        swapped in the Portal): then the picture wins, as long as no two files end up on one camera. Recorded,
+        not flagged: verify rule 8 still fails any side take that isn't on its set."""
+        proposed: dict[str, tuple[_File, str, float]] = {}
+        for f in overridden:
+            ranking = self._profile(f.cand.local).camera_ranking()
+            shares = dict(ranking)
+            if ranking and ranking[0][0] != f.role and ranking[0][1] >= CLEAR_MAJORITY \
+                    and shares.get(f.role, 0.0) < CONTRADICTED:
+                proposed[f.cand.name] = (f, ranking[0][0], shares.get(f.role, 0.0))
+        final = {f.cand.name: f.role for f in overridden} | {n: cam for n, (_, cam, _) in proposed.items()}
+        if len(set(final.values())) < len(final):
+            for f, cam, _ in proposed.values():
+                self._flag("roles", f"{f.cand.name} was set to {f.role} in the Portal but shows camera {cam}; "
+                                    "kept the Portal's role because the corrected roles would clash")
+            return
+        for f, cam, had in proposed.values():
+            self._decisions.append(_decision("roles", f"{f.cand.name} was set to {f.role} in the Portal but shows "
+                                                      f"camera {cam} ({had:.0%} {f.role}); used it as {cam}", False))
+            f.role = cam
 
     def _flag(self, kind: str, detail: str) -> None:
         self._review = True

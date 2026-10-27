@@ -81,20 +81,32 @@ def middle_set(package=None):
 
 
 SCREEN_SLICES = {k: rect(v) for k, v in SCREENS.items()}
+# A two-shot's typical pixel differs from the empty Middle set by under 10 (lighting, compression); every other
+# picture on the real shows is 60 or more. 30 leaves room on both sides, so a re-encode never flips an M shot.
+M_TOLERANCE = 30
 
 
-def classify(f, mid):
-    """Camera class of one analysis-resolution RGB frame: M, L, R, FS, BLACK or OTHER."""
+def classify(f, mid, ignore=None):
+    """Camera class of one analysis-resolution RGB frame: M, L, R, FS, BLACK or OTHER. `ignore` (a bool mask) leaves
+    pixels out of every test: the edit's own fresh graphics, which say nothing about the camera."""
+    everywhere = (slice(None), slice(None))
+
+    def kept(a, where=everywhere):
+        return a[where] if ignore is None else a[where][~ignore[where]]
+
+    def share(mask, where=everywhere):
+        k = kept(mask, where)
+        return float(k.mean()) if k.size else 0.0
     mx = f.max(2)
     dark = mx < 45
-    if f.mean() < 8:
+    if kept(f).mean() < 8:
         return "BLACK"
     mids = mid if mid.ndim == 4 else mid[None]
-    if min(np.median(np.abs(f.astype(np.int16) - m).max(2)) for m in mids) < 18:
+    if min(np.median(kept(np.abs(f.astype(np.int16) - m).max(2))) for m in mids) < M_TOLERANCE:
         return "M"
     sl = SCREEN_SLICES
     screen = dark | key_mask(f)                 # a side TV idles on the dark standby or the switcher's blue key
-    dl, dr, dall = screen[sl["L"]].mean(), screen[sl["R"]].mean(), dark.mean()
+    dl, dr, dall = share(screen, sl["L"]), share(screen, sl["R"]), share(dark)
     if dall > 0.8:
         return "FS"
     if dl > 0.75 and dl > dr + 0.15:
