@@ -93,7 +93,7 @@ A program recording's `report.md` lists:
 - the old overlays burned in, with exact frame windows
 - a still of every filmed TV card
 
-Then **open and view** the contact sheets in `analysis/sheets/` and every card still in `analysis/cards/`, and read the on-air text from them. A filmed card's text has to come from its still, because the anchors paraphrase it. A side-camera shot whose TV shows only the standby logo had no card filmed: you write that card (step 4).
+Then **open and view** the contact sheets in `analysis/sheets/` and every card still in `analysis/cards/`, and read the on-air text from them. A filmed card's text has to come from its still, because the anchors paraphrase it. A side-camera shot whose TV shows only the standby logo, or the switcher's flat blue key, had no card filmed: you write that card (step 4).
 
 **Submitted media:** when `brief.submissions` is set, fetch what people attached (about 20 s):
 ```
@@ -138,7 +138,7 @@ Apply these rules (plus the house rules) and record each as a decision:
   - If the people on air aren't the scheduled anchors, use the names you matched and flag a `name` decision saying who you heard and who you picked. If a name matches nothing on the roster, use the closest sensible spelling of what was said and flag it.
   - Record each as `name`. Never use a filmed graphic's short form when the roster has the full name.
 - **Card typos:** fix only obvious typos, and keep every other word exactly as filmed. Record this as `typo`.
-- **Written cards:** some shows are filmed with no graphics at all (TVs on standby, no name bars), and camera feeds never have any. Every announcement still gets a card, which you write:
+- **Written cards:** some shows are filmed with no graphics at all (TVs on standby or left on the blue key, no name bars), and camera feeds never have any. Every announcement still gets a card, which you write:
   - **Find its script:** match what the anchor reads (the transcript) to its paragraph in `brief.announcements`. Set the card's `"script"` to that paragraph's index (0-based).
   - **Facts from the script:** dates, times, rooms, links and prices come from the script. If the anchor says a different fact (another date, another room), use the script's and flag `card_mismatch`. If no paragraph matches what's read, write the card from the read alone and flag `card_mismatch`.
   - **Write it like the past cards:** copy the style of `brief.pastCards` (and `references/past-cards.md` when there are few): a short title naming the club or event (2–5 words), then 2–4 points of 2–7 words each. Points are fragments, not sentences: when, where, then the one thing to know or do. Leave out anything the card doesn't need (who's organizing, background, "come have fun").

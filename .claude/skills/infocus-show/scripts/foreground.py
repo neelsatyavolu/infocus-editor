@@ -3,6 +3,7 @@
 On the Left/Right sets an anchor's shoulder or hair often crosses the TV. For every frame of each card segment:
 Apple Vision person matte -> keep only the part over the TV screen -> the recording's own pixels with that alpha
 (ProRes 4444, 1920x1080, transparent everywhere else). Goes on the track above the cards.
+A TV left on the switcher's blue key is keyed out of the anchor's soft edges, and their blue spill neutralised.
 
     uv run --with numpy --with opencv-python python foreground.py <show_dir> [--only <segment id>]
 """
@@ -15,11 +16,14 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import H, SCREENS, W, card_segments, ensure_matter, foreground_file, fps_value, load_edl, segment_source  # noqa: E402
+from tv_key import blueness, despill, on_key  # noqa: E402
 
 
 def alpha_for(frame, matte, rect):
     m = matte.astype(np.float32) / 255
     bright = np.clip((frame.max(2).astype(np.float32) - 30) / 22, 0, 1)   # screen ink is ~15; skin/clothes are well above
+    if on_key(frame, rect):
+        bright *= 1 - blueness(frame)                                      # a TV left on the blue key is screen too
     core = cv2.erode((m > 0.9).astype(np.uint8), np.ones((13, 13), np.uint8)).astype(np.float32)
     core = cv2.GaussianBlur(core, (7, 7), 0)                                # solid body even in dark folds
     a = cv2.GaussianBlur(np.maximum(core, m * bright), (3, 3), 0)
@@ -49,6 +53,8 @@ def build(src, fps, f_in, f_out, rect, out):
             break
         f = np.frombuffer(fb, np.uint8).reshape(H, W, 3)
         a8 = (alpha_for(f, np.frombuffer(mb, np.uint8).reshape(H, W), rect) * 255 + 0.5).astype(np.uint8)
+        if on_key(f, rect):
+            f = despill(f, a8 / 255)
         enc.stdin.write(np.dstack([f * (a8 > 0)[..., None], a8]).tobytes())   # blank RGB under zero alpha: small file
         done += 1
     enc.stdin.close()

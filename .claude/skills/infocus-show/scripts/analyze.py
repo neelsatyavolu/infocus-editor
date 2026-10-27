@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import FOLLOW_BOX, NAMEBAR_BAND, SCREENS, THEMES, WHISPER_MODEL, fps_value, package_dir, probe  # noqa: E402
+from tv_key import key_mask  # noqa: E402
 
 SW, SH = 480, 270                      # analysis resolution (1080p / 4)
 Q = 4
@@ -92,7 +93,8 @@ def classify(f, mid):
     if min(np.median(np.abs(f.astype(np.int16) - m).max(2)) for m in mids) < 18:
         return "M"
     sl = SCREEN_SLICES
-    dl, dr, dall = dark[sl["L"]].mean(), dark[sl["R"]].mean(), dark.mean()
+    screen = dark | key_mask(f)                 # a side TV idles on the dark standby or the switcher's blue key
+    dl, dr, dall = screen[sl["L"]].mean(), screen[sl["R"]].mean(), dark.mean()
     if dall > 0.8:
         return "FS"
     if dl > 0.75 and dl > dr + 0.15:
@@ -100,6 +102,15 @@ def classify(f, mid):
     if dr > 0.75 and dr > dl + 0.15:
         return "R"
     return "OTHER"
+
+
+def card_text(f, cam):
+    """Share of the cam's TV screen that is card text: bright pixels away from the standby icon, never the blue key."""
+    scr = f[SCREEN_SLICES[cam]]
+    s = (scr.max(2) > 150) & ~key_mask(scr)
+    h, w = s.shape
+    s[int(h * 0.3):int(h * 0.7), int(w * 0.38):int(w * 0.62)] = False
+    return float(s.mean())
 
 
 def classify_frames(path, every_s=2.0, package=None):
@@ -122,7 +133,6 @@ def classify_frames(path, every_s=2.0, package=None):
 
 def scan_video(path, fps, n_frames, package=None):
     mid = middle_set(package)
-    sl = SCREEN_SLICES
     lb = box((NAMEBAR_BAND[0], NAMEBAR_BAND[1], 960, NAMEBAR_BAND[3]))
     rb = box((960, NAMEBAR_BAND[1], NAMEBAR_BAND[2], NAMEBAR_BAND[3]))
     fb = box(FOLLOW_BOX)
@@ -139,18 +149,14 @@ def scan_video(path, fps, n_frames, package=None):
         small = cv2.resize(f, (96, 54), interpolation=cv2.INTER_AREA).astype(np.int16)
         st["diff"].append(float(np.abs(small - prev).mean()) if prev is not None else 0.0)
         prev = small
-        mx = f.max(2)
         cam = classify(f, mid)
         st["cam"].append(cam)
         o = brand_mask(f)                        # package overlays carry the accent (strip, icon ring, Follow body)
         st["o_left"].append(int(o[lb].sum()))
         st["o_right"].append(int(o[rb].sum()))
         st["o_follow"].append(int(o[fb].sum()))
-        for k in ("L", "R"):                    # card text = bright pixels on the screen away from the standby icon
-            s = mx[sl[k]] > 150
-            h, w = s.shape
-            s[int(h * 0.3):int(h * 0.7), int(w * 0.38):int(w * 0.62)] = False
-            st[f"text_{k}"].append(float(s.mean()) if cam == k else 0.0)
+        for k in ("L", "R"):
+            st[f"text_{k}"].append(card_text(f, k) if cam == k else 0.0)
         if i % every == 0:
             sheet_frames.append((i, cam, cv2.resize(f, (320, 180), interpolation=cv2.INTER_AREA)))
         i += 1

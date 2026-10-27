@@ -5,6 +5,7 @@
   - TV cards get a fresh card fitted exactly over the screen.
   - Name bars and the Follow card get a fresh one that fully covers the old one.
 - **Side cameras are the whole set frame.** The 2026 Left and Right sets fill the frame unzoomed, so the TV screens sit at fixed pixels (`SCREENS` in `common.py`: L 55,112 1124×630 and R 741,108 1122×633). If a show's side shot ever looks reframed, re-measure with `sheet.py --crop` before trusting them.
+- **TVs left on the blue key.** A show may be filmed with the side TVs unfilled, showing the sets' flat blue screen (`#0047BB`, `tv_key.py`) instead of the TV Standby. The analysis reads it like the standby (the side set, no card filmed), so every L/R take gets a written card that covers the blue. The foreground keys the blue out of the anchor's soft edges and pulls its spill, only on frames where the TV shows it. The finished show never shows the blue.
 - **Anchors cross the TV.** On one show an anchor's shoulder sat over the right TV's lower-left corner in almost every frame. That's why the foreground pass exists; never skip it for L/R card segments.
 - **SD vs HD captures:**
   - There may be an SD DV capture (720×480 29.97, anamorphic 16:9) and an HD file (1080p 59.94) of the same show. Always edit from the HD one; ask for it if you only have SD.
