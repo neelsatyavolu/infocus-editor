@@ -104,3 +104,24 @@ def test_on_a_standby_show_a_blue_shirt_at_the_anchors_edge_is_not_keyed():
     assert not tv_key.on_key(f, rect)
     assert foreground.alpha_for(f, matte, rect)[py, px] > 0.3
     assert tv_key.on_key(_studio("L"), rect)
+
+
+def test_a_blue_shirt_covering_most_of_a_standby_tv_does_not_turn_keying_on():
+    rect = common.SCREENS["R"]
+    x, y, w, h = rect
+    f = _studio("R", STANDBY)
+    matte = np.zeros(f.shape[:2], np.uint8)
+    f[y:y + h, x:x + w * 2 // 3] = (30, 60, 180)     # the anchor's royal blue shirt over two thirds of the TV
+    matte[y:y + h, x:x + w * 2 // 3] = 255
+    assert not tv_key.on_key(f, rect, matte)
+
+
+def test_over_the_key_a_half_anchor_edge_pixel_keeps_about_half_its_opacity():
+    rect = common.SCREENS["L"]
+    x, y, w, h = rect
+    f = _studio("L")
+    matte = np.zeros(f.shape[:2], np.uint8)
+    py, px = y + 300, x + 300
+    f[py - 3:py + 4, px - 3:px + 4] = (20, 50, 103)   # dark hair mixed half and half with the key
+    matte[py - 3:py + 4, px - 3:px + 4] = 128
+    assert 0.4 < foreground.alpha_for(f, matte, rect)[py, px] < 0.65

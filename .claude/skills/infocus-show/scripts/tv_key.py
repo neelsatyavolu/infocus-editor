@@ -21,11 +21,14 @@ def key_mask(f):
     return (blueness(f) > 0.6) & (f[..., 2] > 120)
 
 
-def on_key(frame, rect, share=0.3):
-    """Whether a TV screen (x, y, w, h) shows the blue key in this frame, rather than the standby or a card. Keying is
-    done only then, so a blue shirt crossing a standby TV keeps its edge."""
+def on_key(frame, rect, matte=None, share=0.5):
+    """Whether a TV screen (x, y, w, h) shows the blue key in this frame, rather than the standby or a card. Only the
+    screen the person matte leaves uncovered counts, so a blue shirt crossing a standby TV never turns keying on."""
     x, y, w, h = rect
-    return bool(key_mask(frame[y:y + h, x:x + w]).mean() > share)
+    key = key_mask(frame[y:y + h, x:x + w])
+    if matte is not None:
+        key = key[matte[y:y + h, x:x + w] < 128]
+    return bool(key.size and key.mean() > share)
 
 
 def despill(f, alpha):
