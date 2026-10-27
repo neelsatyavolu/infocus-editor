@@ -182,6 +182,10 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 
 **Every show:** the first segment is the theme's intro and the last is its outro (normally `{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4` and `{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4`).
 
+**Graphics go over the picture as they are:**
+- **Overlapping the anchors is fine.** Name bars, dual thirds and the Follow card sit on top of everything at their package size and position. When an anchor's head or shoulder reaches the top left, the Follow card simply covers it; that's expected and correct.
+- **The anchors stay as recorded.** Every take uses the recording's own picture at its own framing. Never reframe, rescale or recomposite the anchors, and never swap in the clean set image, to make room for a graphic or for any other reason. The one allowance is a very small adjustment applied the same way to every take from that camera in the whole show, recorded as an `other` decision; never to some shots and not others.
+
 ## Seasonal themes
 
 A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look, so nothing else about the edit changes.
@@ -256,7 +260,12 @@ uv run --with numpy --with opencv-python --with pillow --with soundfile python $
    - **10, sync** (multicam): a camera's picture and the sound are more than a frame apart. The recording's offsets in `recordings.json` are wrong for that camera: don't edit them yourself; finish with `needsReview: true` and say which camera.
    - **11, recording range:** a take runs past the end of its recording. Pull its `out` in.
 3. **Fix and repeat:** fix in `edl.json`, re-run only the affected steps, rebuild to `brief.output`, and verify again.
-   - **Never work around a check.** Fix what it found (a take, a cover, a card) in `edl.json`. Never resize, recolor, re-time or swap a package graphic, and never change how `build_ffmpeg.py` encodes, to make a check pass: the checks already leave your fresh graphics out and allow for encoding. If a check still fails while the sheets look right, finish with `needsReview: true` and say which rule failed and why.
+   - **Never work around a check.** Fix what it found (a take, a cover, a card) in `edl.json`. To make a check pass, never:
+     - resize, recolor, re-time, move or swap a package graphic
+     - reframe, rescale or recomposite the anchors, or swap in the clean set image
+     - change how `build_ffmpeg.py` encodes
+
+     The checks already leave your fresh graphics out and allow for encoding. If a check still fails while the sheets look right, finish with `needsReview: true` and say which rule failed and why.
 4. **After two fix rounds,** if it still fails, finish anyway with `needsReview: true` and the remaining failures in `checks.failures`. Never loop forever.
 
 The worker runs `verify_render.py` again after you finish, so don't claim a pass you didn't get.
