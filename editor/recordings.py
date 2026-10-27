@@ -241,6 +241,7 @@ class Detector:
         if len(members) == 1:
             f = files[members[0]]
             f.role = f.cand.role if f.cand.role in ("program", *CAMERAS) else "program"
+            self._check_portal_cameras([f] if f.role in CAMERAS else [])
             return
         auto: list[tuple[_File, Profile]] = []
         for i in members:
@@ -279,14 +280,16 @@ class Detector:
         """A producer's camera role stands unless the feed's picture clearly shows another camera (e.g. L and R
         swapped in the Portal): then the picture wins, as long as no two files end up on one camera. Recorded,
         not flagged: verify rule 8 still fails any side take that isn't on its set."""
-        proposed: dict[str, tuple[_File, str, float]] = {}
+        proposed: dict[Path, tuple[_File, str, float]] = {}       # by local path: Portal names can repeat
         for f in overridden:
-            ranking = self._profile(f.cand.local).camera_ranking()
+            prof = self._profile(f.cand.local)
+            ranking = prof.camera_ranking()
             shares = dict(ranking)
-            if ranking and ranking[0][0] != f.role and ranking[0][1] >= CLEAR_MAJORITY \
+            # the other camera must fill most of the whole feed, not just most of its few camera frames
+            if ranking and ranking[0][0] != f.role and prof.share(ranking[0][0]) >= CLEAR_MAJORITY \
                     and shares.get(f.role, 0.0) < CONTRADICTED:
-                proposed[f.cand.name] = (f, ranking[0][0], shares.get(f.role, 0.0))
-        final = {f.cand.name: f.role for f in overridden} | {n: cam for n, (_, cam, _) in proposed.items()}
+                proposed[f.cand.local] = (f, ranking[0][0], shares.get(f.role, 0.0))
+        final = {f.cand.local: f.role for f in overridden} | {k: cam for k, (_, cam, _) in proposed.items()}
         if len(set(final.values())) < len(final):
             for f, cam, _ in proposed.values():
                 self._flag("roles", f"{f.cand.name} was set to {f.role} in the Portal but shows camera {cam}; "

@@ -91,3 +91,16 @@ def test_a_full_frame_hold_stays_in_the_studio_check(tmp_path):
     edl = {"package": pkg, "overlays": [{"id": "hold", "at": 0, "file": str(tmp_path / "hold.mov")}]}
     layout = {"overlays": [{"id": "hold", "rec_in": 0, "rec_out": 3}]}
     assert verify_render.overlay_regions(edl, layout, str(tmp_path)) == []
+
+
+def test_a_smaller_overlay_clip_is_masked_where_the_render_puts_it(tmp_path):
+    pkg, _ = _package(tmp_path)
+    half = np.zeros((540, 960, 4), np.uint8)
+    half[20:120, 24:500] = 255                                   # drawn at half size; the render doubles it
+    _video(tmp_path / "half.mov", [half] * 3, "30000/1001",
+           ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le"])
+    edl = {"package": pkg, "overlays": [{"id": "follow", "at": 0, "file": str(tmp_path / "half.mov")}]}
+    layout = {"overlays": [{"id": "follow", "rec_in": 0, "rec_out": 3}]}
+    [(_, _, mask)] = verify_render.overlay_regions(edl, layout, str(tmp_path))
+    ys, xs = np.nonzero(mask)
+    assert xs.max() * analyze.Q >= 1000 - 4 and ys.max() * analyze.Q >= 240 - 4    # 1080p box (48,40)-(1000,240)

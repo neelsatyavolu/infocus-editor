@@ -137,8 +137,14 @@ def overlay_regions(edl, layout, show_dir):
         boxes = [b for b in boxes if b]
         if opaque or not boxes:                 # a full-frame hold is the picture itself: it stays in the check
             continue
-        x0, y0 = min(b[0] for b in boxes) - ZONE_PAD, min(b[1] for b in boxes) - ZONE_PAD
-        x1, y1 = max(b[2] for b in boxes) + ZONE_PAD, max(b[3] for b in boxes) + ZONE_PAD
+        v = next(st for st in probe(path)["streams"] if st["codec_type"] == "video")
+        w, h = int(v["width"]), int(v["height"])
+        k = min(W / w, H / h)                   # where build_ffmpeg.py puts the clip: fit to 1920x1080, centred
+        ox, oy = (W - w * k) / 2, (H - h * k) / 2
+        x0 = int(ox + min(b[0] for b in boxes) * k) - ZONE_PAD
+        y0 = int(oy + min(b[1] for b in boxes) * k) - ZONE_PAD
+        x1 = int(ox + max(b[2] for b in boxes) * k) + ZONE_PAD
+        y1 = int(oy + max(b[3] for b in boxes) * k) + ZONE_PAD
         mask = np.zeros((SH, SW), bool)
         mask[max(0, y0 * SH // H):y1 * SH // H + 1, max(0, x0 * SW // W):x1 * SW // W + 1] = True
         out.append((x["rec_in"], x["rec_out"], mask))
