@@ -183,3 +183,12 @@ def ensure_matter():
         os.makedirs(os.path.dirname(MATTER), exist_ok=True)
         subprocess.run(["swiftc", "-O", os.path.join(SCRIPTS, "personmatte_video.swift"), "-o", MATTER], check=True)
     return MATTER
+
+
+def ensure_tool(name):
+    """A Swift helper next to the scripts (anchor_matte, face_boxes, face_marks), compiled into bin/ on first use."""
+    exe = os.path.join(SCRIPTS, "bin", name)
+    if not os.path.exists(exe):
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        subprocess.run(["swiftc", "-O", os.path.join(SCRIPTS, f"{name}.swift"), "-o", exe], check=True)
+    return exe
