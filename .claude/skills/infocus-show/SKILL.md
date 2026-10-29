@@ -210,7 +210,7 @@ A re-composited show cuts the anchors out of every take and seats them properly 
 
 ## Seasonal themes
 
-A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look, so nothing else about the edit changes.
+A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look. A themed show is also re-composited onto its theme's sets (see "Re-compositing onto the set"), so the picture matches the graphics.
 
 - **Themes:** `halloween` and `thanksgiving`.
 - **When:**
