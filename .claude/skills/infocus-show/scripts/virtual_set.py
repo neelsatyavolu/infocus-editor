@@ -9,9 +9,12 @@ import os
 import cv2
 import numpy as np
 
-from common import THEMES
+from common import SCREENS, THEMES
 
 SET_KEY = {"L": "left", "M": "middle", "R": "right"}
+# Median difference from a set image past which a frame wasn't keyed onto it: frames on their own set measure about
+# 2 (compression), a show on an older set about 74.
+SET_MATCH = 20
 
 # Measured on the 2026 sets (the October shows). A theme whose table differs gets its own entry in GEOMETRY; the
 # others use the regular one.
@@ -62,12 +65,16 @@ def installed_themes(package):
 
 
 def recorded_theme(frame, mask, cam, package):
-    """The installed theme whose set the frame was keyed onto: the closest match where no anchor is (`mask` False)."""
+    """The installed theme whose set the frame was keyed onto: the closest match where no anchor is (`mask` False),
+    or None when no set matches (a set the package doesn't have)."""
     keep = ~mask
-    best, theme = None, ""
+    if cam in SCREENS:                                   # the TV shows a card, never the set's blue screen
+        x, y, w, h = SCREENS[cam]
+        keep[y:y + h, x:x + w] = False
+    best, theme = None, None
     for t in installed_themes(package):
         diff = np.abs(frame.astype(np.int16) - set_image(cam, t, package).astype(np.int16)).max(2)
         score = float(np.median(diff[keep]))
         if best is None or score < best:
             best, theme = score, t
-    return theme
+    return theme if best is not None and best <= SET_MATCH else None

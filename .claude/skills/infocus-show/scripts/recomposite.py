@@ -57,9 +57,11 @@ def on_failure(recorded, output):
     return "fallback" if recorded == output else "keep"
 
 
-def take_ok(found, samples, areas, wanted):
-    """(ok, reason): every anchor's face on at least half the sampled frames, a scale the seat can reach, and a
-    matte that doesn't jump."""
+def take_ok(found, samples, areas, wanted, known_set=True):
+    """(ok, reason): filmed on a set the package has, every anchor's face on at least half the sampled frames, a
+    scale the seat can reach, and a matte that doesn't jump."""
+    if not known_set:
+        return False, "it was filmed on a set the package doesn't have, so the matte can't use it"
     if found < samples * MIN_FACE_SHARE:
         return False, f"the anchors' faces were found on only {found} of {samples} sampled frames"
     if wanted is not None and not SCALE_RANGE[0] <= wanted <= SCALE_RANGE[1]:
@@ -203,7 +205,7 @@ def measure(edl, seg, theme, pkg, tmp):
     mid = SAMPLES // 2
     mask = cv2.dilate((mats[mid] > 0.25).astype(np.uint8), np.ones((31, 31), np.uint8)).astype(bool)
     recorded = recorded_theme(frames[mid], mask, cam, pkg)
-    plate = set_image(cam, recorded, pkg)
+    plate = set_image(cam, recorded, pkg) if recorded is not None else None
     found_boxes = [r for b in boxes for r in b]
     chin = float(np.median([r[1] + r[3] for r in found_boxes])) if found_boxes else H / 2
     alphas = [alpha_for(f, vis, plate, cam, chin) for f, vis in zip(frames, mats)]
@@ -224,12 +226,13 @@ def render_chunk(job):
     path, fps, first, count, cam = job["path"], job["fps"], job["first"], job["count"], job["cam"]
     lo = max(0, first - 1)
     lead, total = first - lo, count + (first - lo) + 1
-    plate = set_image(cam, job["recorded"], job["pkg"])
-    tex = texture(plate)
+    known = job["recorded"] is not None
+    plate = set_image(cam, job["recorded"], job["pkg"]) if known else None
+    tex = texture(plate) if known else None
     out_u8 = set_image(cam, job["theme"], job["pkg"])
     out_set = out_u8.astype(np.float32)
-    behind = plate.copy()
-    if cam in SCREENS:                                               # the switcher keyed the anchor over a card
+    behind = plate.copy() if known else None
+    if known and cam in SCREENS:                                     # the switcher keyed the anchor over a card
         x, y, w, h = SCREENS[cam]
         behind[y:y + h, x:x + w] = CARD_INK
     s, tx, ty = job["s"], job["tx"], job["ty"]
@@ -284,11 +287,12 @@ def render_chunk(job):
             # All the work happens in the box around the anchor, then in where that box lands once moved.
             y0, y1, x0, x1 = box
             crop = (slice(y0, y1), slice(x0, x1))
-            a = alpha_for(f[crop], vis[crop], plate[crop], cam, job["chin"], origin=(y0, x0), tex=tex[crop])
+            a = alpha_for(f[crop], vis[crop], plate[crop] if known else None, cam, job["chin"], origin=(y0, x0),
+                          tex=tex[crop] if known else None)
             olds = [(bx0 - x0, by0 - y0, bx1 - x0, by1 - y0)
                     for a0, a1, (bx0, by0, bx1, by1) in job["boxes"] if a0 <= t <= a1]
             a, area = cut_and_measure(a, olds)
-            fg = unmix(f[crop], a, behind[crop]) * a[..., None]
+            fg = (unmix(f[crop], a, behind[crop]) if known else f[crop].astype(np.float32)) * a[..., None]
             oy0, oy1 = max(0, int(s * y0 + ty) - 2), min(H, int(np.ceil(s * y1 + ty)) + 2)
             ox0, ox1 = max(0, int(s * x0 + tx) - 2), min(W, int(np.ceil(s * x1 + tx)) + 2)
             if oy0 < oy1 and ox0 < ox1:
@@ -396,7 +400,8 @@ def main(argv):
         with ctx.Pool(workers) as pool:
             for e in entries:
                 seg = by_id[e["id"]]
-                ok, reason = take_ok(e["found"], SAMPLES, [], e["wanted"])
+                known = e["recorded_theme"] is not None
+                ok, reason = take_ok(e["found"], SAMPLES, [], e["wanted"], known)
                 action = on_failure(e["recorded_theme"], theme)
                 e.update(status="recomposited", flag=None)
                 if not ok and action == "fallback":
@@ -406,13 +411,13 @@ def main(argv):
                 areas = render_take(pool, edl, show_dir, seg, e, theme, pkg, workers, tmp)
                 render_s += time.time() - t0
                 done += seg["out"] - seg["in"]
-                ok2, reason2 = take_ok(e["found"], SAMPLES, areas, e["wanted"])
+                ok2, reason2 = take_ok(e["found"], SAMPLES, areas, e["wanted"], known)
                 if not ok or not ok2:
                     e["flag"] = flag(e["id"], reason or reason2, action)
                     if action == "fallback":
                         e["status"] = "fallback"
                         os.remove(recomposite_file(show_dir, seg))
-                print(f"{e['id']} [{e['cam']}, filmed on {e['recorded_theme'] or 'regular'} set]: scale {e['s']:.3f}, "
+                print(f"{e['id']} [{e['cam']}, filmed on {'an unknown' if e['recorded_theme'] is None else e['recorded_theme'] or 'regular'} set]: scale {e['s']:.3f}, "
                       f"offset ({e['tx']:.0f}, {e['ty']:.0f}) -> {e['status']}{' (flagged)' if e['flag'] else ''}",
                       flush=True)
                 if plan_flag is None and abandoned is None and over_budget(render_s, done, total):

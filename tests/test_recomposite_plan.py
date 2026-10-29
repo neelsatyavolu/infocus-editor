@@ -25,6 +25,7 @@ def test_short_take_is_not_split_into_empty_chunks():
 
 def test_failed_take_falls_back_only_when_the_set_stays_the_same():
     assert recomposite.on_failure("", "") == "fallback"
+    assert recomposite.on_failure(None, "") == "keep"        # filmed on a set the package doesn't have
     assert recomposite.on_failure("", "halloween") == "keep"
     assert recomposite.on_failure("halloween", "") == "keep"
 
@@ -113,3 +114,8 @@ def test_only_old_graphics_under_a_fresh_cover_are_cut():
     seg = {"in": 0, "out": 1000}
     got = recomposite.cut_windows(baked, overlays, seg, "/job/show")
     assert [(a, b) for a, b, _ in got] == [(100, 300), (700, 900)]
+
+
+def test_a_take_on_a_set_the_package_doesnt_have_fails():
+    ok, reason = recomposite.take_ok(found=6, samples=6, areas=[1000] * 100, wanted=1.0, known_set=False)
+    assert not ok and "set the package doesn't have" in reason

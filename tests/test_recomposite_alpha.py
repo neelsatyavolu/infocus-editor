@@ -90,3 +90,12 @@ def test_roi_of_an_empty_matte_is_none():
 def test_a_box_above_and_left_of_the_crop_cuts_nothing():
     a = np.ones((100, 100), np.float32)
     assert anchor_alpha.cut_boxes(a, [(-200, -200, -40, -40)]).min() == 1
+
+
+def test_without_a_plate_the_alpha_is_visions_matte():
+    frame = np.full((H, W, 3), (30, 160, 60), np.uint8)    # an unknown set
+    frame[400:800, 800:1100] = (40, 60, 200)
+    vis = np.zeros((H, W), np.float32)
+    vis[400:800, 800:1100] = 1
+    a = anchor_alpha.alpha_for(frame, vis, None, "M", chin=300)
+    assert a[600, 950] > 0.95 and a[600, 760] < 0.05 and a[370, 950] < 0.05   # no halo of the old set

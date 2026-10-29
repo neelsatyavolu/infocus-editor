@@ -72,3 +72,22 @@ def test_unknown_themes_geometry_falls_back_to_regular():
     assert virtual_set.geometry("M", "halloween") == virtual_set.geometry("M", "")
     g = virtual_set.geometry("R", "")
     assert set(g) == {"seats", "desk_back", "desk_lip"} and g["seats"]["x"] == [490]
+
+
+def test_recorded_theme_is_none_when_no_set_matches(tmp_path):
+    install_sets(tmp_path, "", REGULAR)
+    install_sets(tmp_path, "halloween", HALLOWEEN)
+    frame = solid((30, 160, 60))                     # an older set the package doesn't have
+    mask = np.zeros((common.H, common.W), bool)
+    assert virtual_set.recorded_theme(frame, mask, "L", str(tmp_path)) is None
+
+
+def test_the_tv_screen_is_left_out_of_the_match(tmp_path):
+    install_sets(tmp_path, "", REGULAR)
+    frame = solid(REGULAR)
+    x, y, w, h = common.SCREENS["R"]
+    frame[y:y + h, x:x + w] = (15, 17, 15)           # a card on the TV
+    mask = np.ones((common.H, common.W), bool)       # the anchor covers everything but the TV and the table
+    mask[y:y + h, x:x + w] = False
+    mask[900:] = False
+    assert virtual_set.recorded_theme(frame, mask, "R", str(tmp_path)) == ""

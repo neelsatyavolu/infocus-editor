@@ -59,7 +59,10 @@ def roi(vis, pad=ROI_PAD):
 def alpha_for(frame, vis, plate, cam, chin, origin=(0, 0), tex=None):
     """Anchor alpha (0..1). `vis` is Vision's matte (0..1), `plate` the set the frame was keyed onto, `chin` the row
     under the anchors' faces: hair above it, shoulders, arms and clothes below. The images may be a crop of the
-    frame whose top-left is at `origin` (row, col), with `tex` the same crop of texture(full plate)."""
+    frame whose top-left is at `origin` (row, col), with `tex` the same crop of texture(full plate). With no plate
+    (a set the package doesn't have) it is Vision's matte alone, snapped to the picture's edges."""
+    if plate is None:
+        return cv2.GaussianBlur(np.clip((guided(frame, vis) - 0.35) / 0.3, 0, 1), (3, 3), 0)
     d = cv2.medianBlur(np.clip(np.abs(frame.astype(np.int16) - plate.astype(np.int16)).max(2), 0, 255)
                        .astype(np.uint8), 3).astype(np.float32)
     # The recording is low-bitrate H.264, so fine set detail (the wall slats, edges) is off by more than flat areas:
