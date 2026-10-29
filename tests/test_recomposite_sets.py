@@ -39,6 +39,13 @@ def test_theme_sets_live_in_the_package():
         "Themes/Halloween/04 Virtual Sets/InFocus Virtual Set Halloween 2026 - Right.png")
 
 
+def test_every_theme_names_all_three_sets():
+    for theme, files in common.THEMES.items():
+        assert {"left", "middle", "right"} <= set(files), theme
+    assert common.THEMES["thanksgiving"]["left"] == \
+        "Themes/Thanksgiving/04 Virtual Sets/InFocus Virtual Set Thanksgiving 2026 - Left.png"
+
+
 def test_set_image_reads_the_cams_png(tmp_path):
     install_sets(tmp_path, "", REGULAR)
     img = virtual_set.set_image("L", "", str(tmp_path))
