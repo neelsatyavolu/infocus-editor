@@ -1,5 +1,6 @@
 """build_ffmpeg.py: the show built and rendered by ffmpeg alone, frame-exact, with layout.json and an FCPXML."""
 import json
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -61,6 +62,58 @@ def built(tmp_path_factory):
     frames = subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                             capture_output=True, check=True).stdout
     return d, out, result, np.frombuffer(frames, np.uint8).reshape(-1, 1080, 1920, 3)
+
+
+def rebuilt(built, tmp_path, plan, clip=True):
+    """The same show with recomposite on and a Recomposite/plan.json; take "a" re-composited to solid magenta."""
+    d0 = built[0]
+    d = tmp_path / "show"
+    shutil.copytree(d0 / "Audio", d / "Audio")
+    edl = {**json.loads((d0 / "edl.json").read_text()), "recomposite": True}
+    (d / "edl.json").write_text(json.dumps(edl))
+    (d / "Recomposite").mkdir()
+    (d / "Recomposite" / "plan.json").write_text(json.dumps(plan))
+    if clip:
+        ffmpeg("-f", "lavfi", "-i", f"color=c=magenta:s=1920x1080:r={RATE}", "-frames:v", "150", "-c:v", "libx264",
+               "-pix_fmt", "yuv420p", str(d / "Recomposite" / "a - Recomposite.mov"))
+    out = d / "out.mp4"
+    build_ffmpeg.build(str(d), str(out), version=1)
+    frames = subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                            capture_output=True, check=True).stdout
+    return d, np.frombuffer(frames, np.uint8).reshape(-1, 1080, 1920, 3)
+
+
+PLAN_A = {"theme": "", "abandoned": None, "takes": [{"id": "a", "status": "recomposited"},
+                                                    {"id": "b", "status": "fallback"}]}
+
+
+def magenta(frame):
+    r, g, b = (int(v) for v in frame[540, 960])
+    return r > 200 and b > 200 and g < 60
+
+
+def test_recomposited_take_reads_its_clip(built, tmp_path):
+    _, frames = rebuilt(built, tmp_path, PLAN_A)
+    assert len(frames) == 330
+    assert magenta(frames[0]) and magenta(frames[149])
+    assert bool((frames[20][150, 250] > 230).all())                # overlays still go on top
+    assert number(frames[270]) == 400                              # a fallback take reads the recording
+
+
+def test_layout_marks_recomposited_takes(built, tmp_path):
+    d, _ = rebuilt(built, tmp_path, PLAN_A)
+    layout = json.loads((d / "layout.json").read_text())
+    assert [s.get("recomposite", False) for s in layout["segments"]] == [True, False, False]
+
+
+def test_abandoned_plan_builds_as_today(built, tmp_path):
+    _, frames = rebuilt(built, tmp_path, {**PLAN_A, "abandoned": "too slow"})
+    assert number(frames[0]) == 100 and number(frames[149]) == 249
+
+
+def test_missing_clip_is_a_clear_error(built, tmp_path):
+    with pytest.raises(RuntimeError, match="a - Recomposite.mov"):
+        rebuilt(built, tmp_path, PLAN_A, clip=False)
 
 
 def test_renders_the_right_frame_count(built):

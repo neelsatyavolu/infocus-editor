@@ -171,6 +171,19 @@ def recomposite_on(edl):
     return bool(edl.get("recomposite"))
 
 
+def recomposited_takes(show_dir, edl):
+    """Ids of the takes whose picture is their re-composited clip (Recomposite/plan.json status "recomposited"),
+    unless recomposite is off or the pass was abandoned."""
+    path = os.path.join(show_dir, "Recomposite", "plan.json")
+    if not recomposite_on(edl) or not os.path.exists(path):
+        return set()
+    with open(path) as f:
+        plan = json.load(f)
+    if plan.get("abandoned"):
+        return set()
+    return {t["id"] for t in plan.get("takes", []) if t.get("status") == "recomposited"}
+
+
 def slate_file(show_dir, seg):
     return os.path.join(show_dir, "Graphics", f"{seg['id']} - Slate.png")
 
