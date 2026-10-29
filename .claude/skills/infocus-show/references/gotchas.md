@@ -23,6 +23,14 @@
 - **Frozen or wrong feeds:** a feed that holds one picture for a long stretch (`frozen` in `multicam.md`) has no live camera there. Don't cut to it.
 - **Sync:** `verify_render.py` rule 10 compares the render's sound with each camera file's own sound. A failure means the recording's offsets are off for that camera. That's a review item, not something to fix by nudging `in`/`out`.
 
+## Re-compositing (`recomposite.py`)
+- **It needs the set the show was filmed on.** The matte compares each frame with that set's package PNG, pixel for pixel (the switcher keys onto it exactly). A recording on a set the package doesn't have (one older show used another set) can't be re-composited: its takes come back flagged.
+- **Two-shots framed tight at the bottom** can only rise about 30 px before the camera's cut would show on the table top. They sit a little low instead, with the table's front panel hiding the cut (`"tight": true`).
+- **Old plates over an anchor are cut out of them** (a burned-in Follow card over a head, a name bar over the hands), but only where a fresh cover goes on top. While the fresh cover animates in and out, part of that hole can show for a few frames.
+- **Full-screen flashes are held:** frames with no anchor at all show the nearest frame with one. More than 10% of a take like that fails the take.
+- **The Halloween Middle set has a pumpkin on the table's right end;** the right anchor's arm goes over it.
+- **Raw green-screen camera feeds** aren't supported yet.
+
 ## Picking takes
 - Whisper drifts on long files. `analyze.py` transcribes in 2-minute chunks, but word times still wander by ±0.5 s. Put cut points in silences from `speech_runs_s` and confirm with `sheet.py`.
 - Repeated identical lines ("Who's on teleprompter?" ×50, "VIKINGS" ×10) are hallucinations over silence, not speech.
@@ -57,5 +65,5 @@
 - Name plates are square. Use Soft White `#ECEFEA`, never pure white.
 - The TVs idle on `09 TV Standby`, never on the blue key. Announcements start and end on that exact frame.
 - The Follow card sits top left. The outro uses the original music.
-- Package graphics go on at their own size, position and timing, always, even over the anchors (the Follow card covering a head or shoulder is fine). A graphic is never changed, and the anchors are never reframed or recomposited, to get past a check; the studio check ignores the edit's own overlays.
+- Package graphics go on at their own size, position and timing, always, even over the anchors (the Follow card covering a head or shoulder is fine). A graphic is never changed, and the anchors are never reframed or recomposited, to get past a check; the studio check ignores the edit's own overlays. Re-compositing is a choice made up front (the brief, the note or a theme), done only by `recomposite.py`.
 - Rule #1 from `_Working Files/NOTES.md`: change the *source* (`edl.json`, `graphics.html`), then re-render. Never hand-edit a render.

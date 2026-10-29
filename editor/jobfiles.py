@@ -95,6 +95,7 @@ def build_brief(cfg: Config, claim: Claim, paths: JobPaths, recordings: Path, so
         "roster": list(b.get("roster") or []),
         "packages": packages,
         "note": b.get("note"),
+        "recomposite": bool(b.get("recomposite")),
         "fix": fix,
         "showDir": str(paths.show),
         "output": str(paths.output(claim.show_date, claim.version)),

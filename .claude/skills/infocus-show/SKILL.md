@@ -39,8 +39,9 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   - `pastCards`: announcement cards from earlier shows, newest first, each `{ showDate, title, points, script }` (`script` is the announcement text the card was made from, or null). The house style for cards you write yourself.
   - `packages`: the queued packages, in order, each with `localPath` and `toss`
   - `note`: the producer's instructions for this edit (typed at Start or Redo), or null
+  - `recomposite`: true when the producer ticked "Re-set the anchors on the virtual set" (see "Re-compositing onto the set")
   - `fix`: the fix request, or null
-  - `showDir`: your working folder. It holds `edl.json`, `Graphics/`, `Foreground/`, `Audio/`, `analysis/`, `check/` and `layout.json`.
+  - `showDir`: your working folder. It holds `edl.json`, `Graphics/`, `Foreground/`, `Recomposite/`, `Audio/`, `analysis/`, `check/` and `layout.json`.
   - `output`, `poster`: where the final render and poster go
   - `packageDir`: the InFocus 2026 Package folder. Its `README.md` and `_Working Files/NOTES.md` hold the producer's design decisions.
   - `houseRules`: the house rules file
@@ -157,10 +158,11 @@ Apply these rules (plus the house rules) and record each as a decision:
 - **Package music:** transcribe or listen to it. Explicit lyrics get a flagged `lyrics` decision.
 - **Producer's instructions:** if `brief.note` is set, follow it where it's about this edit, even over a house rule, and record what you did as `other`. If something in it can't be done (a take that doesn't exist), do the closest thing and flag it.
 - **Theme:** decide it before step 2 (see "Seasonal themes") and record it as `other`.
+- **Re-composite:** decide whether the anchors are re-set on the clean virtual set (see "Re-compositing onto the set") and record which trigger turned it on as `other`.
 
 ### 5. Fresh-graphics checklist, then write `<showDir>/edl.json`
 The format and rules are in `references/edl.md`; a complete example is in `references/example-edl.json`.
-- **Top of the file:** set `"show": "InFocus Show MM-DD-YYYY"`, `"package": <brief.packageDir>`, `"theme"` for a themed show (see "Seasonal themes"; leave it out otherwise), and `"recordings"`: the `recordings` list copied from `recordings.json` (every take and overlay refers to it). An older brief with only `source` sets `"source"` instead.
+- **Top of the file:** set `"show": "InFocus Show MM-DD-YYYY"`, `"package": <brief.packageDir>`, `"theme"` for a themed show (see "Seasonal themes"; leave it out otherwise), `"recomposite": true` for a re-composited show, and `"recordings"`: the `recordings` list copied from `recordings.json` (every take and overlay refers to it). An older brief with only `source` sets `"source"` instead.
 - **Every take** names its source: `"recording": "r1"` and `"cam"`, with `in`/`out` on that recording's timeline. In a program recording `cam` is the camera the analysis saw (it picks which TV a card goes on); in a multicam recording it's the camera file the take reads.
 - **Every overlay** names its `"recording"` too: `at` is a frame of that recording.
 
@@ -171,7 +173,7 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
   - Set `duration` so it runs as long as the old one did. Its out-animation must cover the old one's: duration ms = old length in seconds × 1000, plus the out-animation.
   - If a longer name made the old plate wider, raise `render.scale` (see `references/gotchas.md`).
 - **Every old Follow card** gets the theme's Follow card (normally `{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) as a `file` overlay with `covers`.
-- **Any logo bug or graphic fired by mistake** gets a clean-plate `patch` (from "When the switcher misfired").
+- **Any logo bug or graphic fired by mistake** gets a clean-plate `patch` (from "When the switcher misfired"). In a re-composited show it needs nothing: it goes with the old set.
 - **The switcher's intro, logo card and end card are cut.**
 - An edit with any old graphic still visible is not finished.
 
@@ -184,7 +186,27 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 
 **Graphics go over the picture as they are:**
 - **Overlapping the anchors is fine.** Name bars, dual thirds and the Follow card sit on top of everything at their package size and position. When an anchor's head or shoulder reaches the top left, the Follow card simply covers it; that's expected and correct.
-- **The anchors stay as recorded.** Every take uses the recording's own picture at its own framing. Never reframe, rescale or recomposite the anchors, and never swap in the clean set image, to make room for a graphic or for any other reason. The one allowance is a very small adjustment applied the same way to every take from that camera in the whole show, recorded as an `other` decision; never to some shots and not others.
+- **The anchors stay as recorded,** unless the show is re-composited (see "Re-compositing onto the set"), and then only `recomposite.py` moves them, one fixed transform per take. Otherwise every take uses the recording's own picture at its own framing. Never reframe, rescale or recomposite the anchors by any other means, never to get past a check, and never swap in the clean set image yourself. The one allowance is a very small adjustment applied the same way to every take from that camera in the whole show, recorded as an `other` decision; never to some shots and not others.
+
+## Re-compositing onto the set
+
+A re-composited show cuts the anchors out of every take and seats them properly on the clean virtual set of the show's theme: the waist on the table's back edge, the forearms and hands resting on the table top, the table's front panel in front, every anchor the same size shot to shot, no neighbour or studio clutter in shot. It fixes a camera framed off, and it lets a show filmed on one set go out on another.
+
+- **When:** only when one of these is true; otherwise leave it off (today's picture, cards on the TV, anchor foregrounds):
+  - `brief.recomposite` is true (the producer ticked the box)
+  - `brief.note` or a house rule asks for it ("re-seat the anchors", "put them on the set properly")
+  - the show is themed (see "Seasonal themes"): a themed show always goes out on its theme's sets
+- **Set** `"recomposite": true` at the top of `edl.json`, and record the trigger as `other`.
+- **Only recordings with the set baked in** (today's switcher recordings). Raw green-screen camera feeds aren't supported yet: if `recomposite.py` says so, leave it off and flag an `other` decision.
+- **No fix-up clips on re-composited takes:** `hold`, `patch` and `under` clips are cut from the old recording and would put it back over the new picture (verify rule 12 fails them). A full-screen flash is held by `recomposite.py` itself, a logo bug goes with the old set, and an old Follow card is covered by the theme's plain Follow card. Old name bars, dual thirds and Follow cards still get their fresh covers as usual.
+- **Run it in step 6**, after `render_graphics.mjs` (it puts the fresh cards on the TVs):
+  ```
+  uv run --with numpy --with opencv-python python $S/recomposite.py <showDir>
+  ```
+  About 1.5× the takes' length on this Mac. It writes `Recomposite/plan.json` and, per take, a clip and `<id>-before.jpg` / `-after.jpg` / `-alpha.jpg`.
+- **View** one `-after.jpg` per camera (M, L, R): the anchors seated on the table, edges clean, no old set or graphic around them.
+- **Copy its decisions:** every take's `flag` in `plan.json` is a flagged `other` decision (a take that kept its original picture, or kept a rough matte on a different set). A take with `"tight": true` gets an `other` decision (not flagged) that its camera was framed tight, so the anchors sit a little low. An `"abandoned"` plan (too slow for this Mac) is one flagged `other` decision, and the show builds from the recordings as usual.
+- **Takes that kept their original picture** (`"status": "fallback"`) still need `foreground.py --only <id>` when they have a card.
 
 ## Seasonal themes
 
@@ -215,6 +237,8 @@ node $S/render_graphics.mjs <showDir>
 uv run --with numpy --with opencv-python python $S/foreground.py <showDir>
 ```
 Then open and view one card still (is the text right?) and one foreground frame over magenta (is the anchor's edge clean?).
+
+**A re-composited show** skips `foreground.py` here: once `render_graphics.mjs` has finished, run `recomposite.py` (see "Re-compositing onto the set"), then `foreground.py --only <id>` for each fallback take with a card. `recomposite.py` uses the GPU and every core, so don't run analysis or whisper alongside it.
 
 Run `progress audio`, then master the audio (about 1 min). This makes the finished WAVs the build puts on the program audio:
 ```
@@ -262,6 +286,7 @@ uv run --with numpy --with opencv-python --with pillow --with soundfile python $
    - **9, shot length** (multicam): a shot is under 1.5 s. Merge it into its neighbour or move the cut to another sentence break.
    - **10, sync** (multicam): a camera's picture and the sound are more than a frame apart. The recording's offsets in `recordings.json` are wrong for that camera: don't edit them yourself; finish with `needsReview: true` and say which camera.
    - **11, recording range:** a take runs past the end of its recording. Pull its `out` in.
+   - **12, one set** (re-composited shows): `recomposite.py` didn't run, ran for another theme, a take is left on a different set than the show, or a fix-up clip from the old recording sits over a re-composited take. Run `recomposite.py` again for the show's theme, or take the fix-up clip out.
 3. **Fix and repeat:** fix in `edl.json`, re-run only the affected steps, rebuild to `brief.output`, and verify again.
    - **Never work around a check.** Fix what it found (a take, a cover, a card) in `edl.json`. To make a check pass, never:
      - resize, recolor, re-time, move or swap a package graphic
@@ -274,10 +299,12 @@ uv run --with numpy --with opencv-python --with pillow --with soundfile python $
 The worker runs `verify_render.py` again after you finish, so don't claim a pass you didn't get.
 
 ### 9. Poster, README, result
-- **Poster:** pick a moment in the open, about 2 s in, where both anchors are on camera with no graphic animating:
+- **Poster:** a moment while the dual third is fully on screen (not animating) where both anchors look natural: eyes open, mouths at rest, facing the camera. Find the candidates, view the sheet, pick one, then make the poster at its seconds:
   ```
-  python $S/poster.py <brief.output> <seconds into the render> <brief.poster>
+  uv run --with numpy --with opencv-python --with pillow python $S/poster_pick.py <showDir> <brief.output> <showDir>/check/poster
+  python $S/poster.py <brief.output> <seconds of the frame you picked> <brief.poster>
   ```
+  `poster_pick.py` scores every anchor's face with Apple Vision and puts the best 6 on `check/poster/candidates.jpg`, labelled with their seconds (with no dual third it looks at the first two-shot of the open). The score is a guide: pick by eye, and record the pick as `other` when it isn't #1.
 - **README:** keep a short `README.md` in `showDir`: takes used and why, text changes, placeholders, fix-up clips, anything unverified.
 - **result.json:** write `<job folder>/result.json`:
 
@@ -306,7 +333,7 @@ A producer reviewed the previous version and typed `brief.fix.text`, for example
 
 ## When the switcher misfired
 
-For program recordings. `fixups.py` makes clips from the recording's own frames (`<recording>` is its program file; frame numbers are that file's). Each output file name carries the frame and length, so a remade clip never gets mixed up with the old one. Use the printed path as the overlay's `file`, with `covers: [first, last]`:
+For program recordings, and never on a re-composited take (see "Re-compositing onto the set"). `fixups.py` makes clips from the recording's own frames (`<recording>` is its program file; frame numbers are that file's). Each output file name carries the frame and length, so a remade clip never gets mixed up with the old one. Use the printed path as the overlay's `file`, with `covers: [first, last]`:
 ```
 uv run --with numpy --with pillow python $S/fixups.py grab  <recording> <frame> <out.png>
 uv run --with numpy --with pillow python $S/fixups.py hold  <recording> <frame> <frames> <showDir>/Graphics/fixes

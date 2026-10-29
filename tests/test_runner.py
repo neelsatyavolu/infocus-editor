@@ -241,6 +241,17 @@ async def test_cards_go_to_the_portal_and_past_cards_reach_the_brief(tmp_path):
     assert brief["submissions"] == submitted
 
 
+@pytest.mark.parametrize("given, expected", [(True, True), (None, False)])
+async def test_recomposite_reaches_the_brief(tmp_path, given, expected):
+    claim = edit_claim()
+    brief = {**claim.brief, **({"recomposite": given} if given is not None else {})}
+    claim = Claim(claim.kind, claim.job_id, claim.show_date, claim.version, brief, claim.downloads)
+    deps = deps_for(tmp_path, FakeAgent(finish))
+    await run_job(deps, claim)
+    written = json.loads((deps.cfg.work_root / f"{DATE}-j1" / "brief.json").read_text())
+    assert written["recomposite"] is expected
+
+
 async def test_status_json_changes_are_forwarded_once_each(tmp_path):
     async def step(job_dir, cancel):
         for stage, msg in [("analyze", "Analyzing"), ("analyze", "Analyzing"), ("render", "Rendering")]:
