@@ -15,6 +15,7 @@ import common  # noqa: E402
 import verify_render  # noqa: E402
 
 HALLOWEEN = "{PACKAGE}/Themes/Halloween/03 Intro & Outro/"
+THANKSGIVING = "{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/"
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +42,10 @@ def test_theme_files_live_under_themes_in_the_package():
     assert common.theme_file("intro", edl) == "/pkg/Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4"
     assert common.theme_file("follow", {"package": "/pkg"}) == "/pkg/08 Follow InFocus/InFocus Follow Us.mov"
     assert set(common.THEMES["halloween"]) == set(common.THEMES[""])
+    edl = {"package": "/pkg", "theme": "thanksgiving"}
+    assert common.theme_file("follow", edl) == \
+        "/pkg/Themes/Thanksgiving/08 Follow InFocus/InFocus Follow Us (Thanksgiving).mov"
+    assert set(common.THEMES["thanksgiving"]) == set(common.THEMES[""])
 
 
 def _package(tmp_path, *themes):
@@ -58,12 +63,12 @@ def _small(frame):
     return np.asarray(Image.fromarray(frame).resize((analyze.SW, analyze.SH), Image.BOX))
 
 
-def test_a_two_shot_on_either_installed_middle_set_is_m(tmp_path):
-    pkg, sets = _package(tmp_path, "", "halloween")
+def test_a_two_shot_on_any_installed_middle_set_is_m(tmp_path):
+    pkg, sets = _package(tmp_path, "", "halloween", "thanksgiving")
     mid = analyze.middle_set(pkg)
-    assert mid.shape[0] == 2
-    assert analyze.classify(_small(sets[""]), mid) == "M"
-    assert analyze.classify(_small(sets["halloween"]), mid) == "M"
+    assert mid.shape[0] == 3
+    for theme in ("", "halloween", "thanksgiving"):
+        assert analyze.classify(_small(sets[theme]), mid) == "M"
 
 
 def test_without_the_seasonal_set_only_the_regular_two_shot_is_m(tmp_path):
@@ -91,10 +96,27 @@ def test_green_and_pumpkin_graphics_count_as_overlays_but_skin_and_oak_dont():
     assert analyze.brand_mask(f)[0].tolist() == [True, True, True, False, False, False]
 
 
+def test_cranberry_and_gold_graphics_count_as_overlays_but_skin_and_wood_dont():
+    cranberry, gold, dot = (150, 43, 51), (232, 163, 61), (212, 67, 79)   # strip and Follow body, ring, record dot
+    looks = [(224, 172, 140), (141, 85, 36), (120, 70, 50), (200, 120, 100), (255, 205, 180), (90, 56, 37),
+             (180, 110, 80), (160, 82, 60), (230, 190, 130), (200, 150, 110)]   # skin, blond hair, oak
+    f = _swatch(cranberry, gold, dot, *looks)
+    assert analyze.brand_mask(f)[0].tolist() == [True, True, True] + [False] * len(looks)
+
+
 def test_rule_5_wants_the_themes_intro_and_outro():
     segs = [{"id": "intro", "kind": "file", "path": HALLOWEEN + "InFocus Intro Halloween 2026.mp4"},
             {"id": "open", "kind": "source", "in": 0, "out": 100},
             {"id": "outro", "kind": "file", "path": HALLOWEEN + "InFocus Outro Halloween 2026.mp4"}]
     assert verify_render.rule_intro_outro({"theme": "halloween", "segments": segs}) == []
     fails = verify_render.rule_intro_outro({"segments": segs})
+    assert {f["segment"] for f in fails} == {"intro", "outro"}
+
+
+def test_rule_5_wants_the_thanksgiving_intro_and_outro():
+    segs = [{"id": "intro", "kind": "file", "path": THANKSGIVING + "InFocus Intro Thanksgiving 2026.mp4"},
+            {"id": "open", "kind": "source", "in": 0, "out": 100},
+            {"id": "outro", "kind": "file", "path": THANKSGIVING + "InFocus Outro Thanksgiving 2026.mp4"}]
+    assert verify_render.rule_intro_outro({"theme": "thanksgiving", "segments": segs}) == []
+    fails = verify_render.rule_intro_outro({"theme": "halloween", "segments": segs})
     assert {f["segment"] for f in fails} == {"intro", "outro"}

@@ -6,7 +6,7 @@ no card), and the anchor foregrounds key it out of their soft edges so the fresh
 """
 import numpy as np
 
-KEY = (0, 71, 187)                     # the sets' TV screen color, regular and Halloween
+KEY = (0, 71, 187)                     # the sets' TV screen color, regular and seasonal
 KEY_LEAD = KEY[2] - max(KEY[:2])       # how far the key's blue rises above its red and green
 
 
