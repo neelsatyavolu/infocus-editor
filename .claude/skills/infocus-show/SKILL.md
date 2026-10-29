@@ -192,8 +192,8 @@ A themed show uses a seasonal look for every graphic: intro, outro, name bars, d
 
 - **Themes:** `halloween` and `thanksgiving`.
 - **When:**
-  - **`thanksgiving`:** every show whose `brief.showDate` is in November, with no note needed. A November show uses the regular look only when `brief.note` or a house rule asks for it (for example "regular graphics" or "no Thanksgiving theme"), or another theme when one of them asks for that. Outside November, use Thanksgiving only when `brief.note` or a house rule asks for it ("Thanksgiving show", "use the Thanksgiving graphics").
-  - **`halloween`:** only when `brief.note` or a house rule says the show is themed, for example "Halloween show", "use the Halloween graphics" or "spooky theme".
+  - **`thanksgiving`:** every show whose `brief.showDate` is in November, with no note needed. A November show uses the regular look only when `brief.note`, `brief.fix.text` or a house rule asks for it (for example "regular graphics" or "no Thanksgiving theme"), or another theme when one of them asks for that. Outside November, use Thanksgiving only when one of those asks for it ("Thanksgiving show", "use the Thanksgiving graphics").
+  - **`halloween`:** only when `brief.note`, `brief.fix.text` or a house rule says the show is themed, for example "Halloween show", "use the Halloween graphics" or "spooky theme".
   - Nothing else turns a theme on: not costumes on air, not seasonal sets or graphics in the recording. Otherwise use the regular look.
 - **Set it everywhere:** `export INFOCUS_THEME=<theme>`, and `"theme": "<theme>"` at the top of `edl.json`. `render_graphics.mjs`, `verify_render.py` and the rest read it from there.
 - **Its files** (paths in `edl.json`):
