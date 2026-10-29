@@ -56,7 +56,7 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
 
 - **Output names:** every version gets new output names, so a reviewer never sees a cached older file.
 - **Paths:** all paths are absolute.
-- **Seasonal themes:** `packageDir/Themes/<Name>/` holds a theme's intro, outro, Follow card, TV standby and sets (`Themes/Halloween/` for `halloween`), and the package's `graphics.html` renders its name bars and cards with `?theme=<name>`. The Setup app copies `Themes/` when its package folder has one; an installed Mac gets a new theme copied into its package. The skill uses one only when the producer's note or a house rule asks for it (SKILL.md "Seasonal themes").
+- **Seasonal themes:** `packageDir/Themes/<Name>/` holds a theme's intro, outro, Follow card, TV standby and sets (`Themes/Halloween/` for `halloween`, `Themes/Thanksgiving/` for `thanksgiving`), and the package's `graphics.html` renders its name bars and cards with `?theme=<name>`. The Setup app copies `Themes/` when its package folder has one; an installed Mac gets a new theme copied into its package. The skill uses Thanksgiving for every November show and otherwise a theme only when the producer's note or a house rule asks for it (SKILL.md "Seasonal themes").
 
 ## status.json
 

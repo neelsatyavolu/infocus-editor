@@ -59,10 +59,20 @@ def pumpkin_mask(f):
     return (f[..., 0] > f[..., 1] + 80) & (f[..., 1] > f[..., 2] + 30) & (f[..., 0] > 150)
 
 
+def harvest_mask(f):
+    """The Thanksgiving accents: Cranberry #962B33 (role strip, Follow body; its blue sits at or above its green,
+    which skin's never does) and Harvest Gold #E8A33D (icon ring)."""
+    f = f.astype(np.int16)
+    r, g, b = f[..., 0], f[..., 1], f[..., 2]
+    cranberry = (r > g + 60) & (b > g - 15) & (r > b + 50) & (r > 90)
+    gold = (r > g + 40) & (g > b + 70) & (r > 170)
+    return cranberry | gold
+
+
 def brand_mask(f):
-    """Pixels in a package overlay's accent color, regular green or Halloween pumpkin. What the switcher burned in
-    doesn't depend on the look this edit outputs, so both are always looked for."""
-    return green_mask(f) | pumpkin_mask(f)
+    """Pixels in a package overlay's accent color: regular green, Halloween pumpkin or Thanksgiving cranberry and
+    gold. What the switcher burned in doesn't depend on the look this edit outputs, so all are always looked for."""
+    return green_mask(f) | pumpkin_mask(f) | harvest_mask(f)
 
 
 def middle_set(package=None):

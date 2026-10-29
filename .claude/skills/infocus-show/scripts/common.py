@@ -52,6 +52,13 @@ THEMES = {
         "standby": "Themes/Halloween/09 TV Standby/InFocus TV Standby (Halloween).png",
         "middle": "Themes/Halloween/04 Virtual Sets/InFocus Virtual Set Halloween 2026 - Middle.png",
     },
+    "thanksgiving": {
+        "intro": "Themes/Thanksgiving/03 Intro & Outro/InFocus Intro Thanksgiving 2026.mp4",
+        "outro": "Themes/Thanksgiving/03 Intro & Outro/InFocus Outro Thanksgiving 2026.mp4",
+        "follow": "Themes/Thanksgiving/08 Follow InFocus/InFocus Follow Us (Thanksgiving).mov",
+        "standby": "Themes/Thanksgiving/09 TV Standby/InFocus TV Standby (Thanksgiving).png",
+        "middle": "Themes/Thanksgiving/04 Virtual Sets/InFocus Virtual Set Thanksgiving 2026 - Middle.png",
+    },
 }
 
 
