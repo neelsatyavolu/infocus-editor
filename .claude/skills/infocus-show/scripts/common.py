@@ -162,6 +162,15 @@ def foreground_file(show_dir, seg):
     return os.path.join(show_dir, "Foreground", f"{seg['id']} - Foreground.mov")
 
 
+def recomposite_file(show_dir, seg):
+    return os.path.join(show_dir, "Recomposite", f"{seg['id']} - Recomposite.mov")
+
+
+def recomposite_on(edl):
+    """Whether the show's takes are re-composited onto the clean virtual set (edl.json "recomposite")."""
+    return bool(edl.get("recomposite"))
+
+
 def slate_file(show_dir, seg):
     return os.path.join(show_dir, "Graphics", f"{seg['id']} - Slate.png")
 

@@ -55,3 +55,38 @@ def test_green_screen_is_not_built_yet():
     assert anchor_alpha.matte_kind({"kind": "program"}) == "baked"
     with pytest.raises(NotImplementedError, match="later phase"):
         anchor_alpha.matte_kind({"kind": "green"})
+
+
+def test_anchor_area_is_measured_before_old_graphics_are_cut():
+    a = np.zeros((H, W), np.float32)
+    a[600:1000, 200:600] = 1                        # an anchor partly under an old name bar
+    cut, area = anchor_alpha.cut_and_measure(a, [(150, 840, 960, 975)])
+    assert area == 400 * 400                        # the matte check sees the whole anchor
+    assert cut[900, 300] == 0                       # the old plate's box is still cut out
+
+
+def test_alpha_on_the_anchors_box_matches_the_full_frame():
+    rng = np.random.default_rng(2)
+    plate = np.clip(120 + rng.normal(0, 3, (H, W, 3)), 0, 255).astype(np.uint8)
+    frame = plate.copy()
+    frame[300:900, 900:1300] = (40, 60, 200)
+    frame[150:300, 1000:1200] = (90, 60, 40)                # hair above the chin
+    vis = np.zeros((H, W), np.float32)
+    vis[140:910, 890:1310] = 1
+    full = anchor_alpha.alpha_for(frame, vis, plate, "R", chin=300)
+    y0, y1, x0, x1 = anchor_alpha.roi(vis)
+    assert (y0, y1, x0, x1) == (92, 958, 842, 1358)                # the matte box, padded 48 px
+    tex = anchor_alpha.texture(plate)[y0:y1, x0:x1]
+    part = anchor_alpha.alpha_for(frame[y0:y1, x0:x1], vis[y0:y1, x0:x1], plate[y0:y1, x0:x1], "R", chin=300,
+                                  origin=(y0, x0), tex=tex)
+    inner = (slice(40, -40), slice(40, -40))                # away from the box's own edge
+    assert np.abs(part[inner] - full[y0:y1, x0:x1][inner]).max() < 0.02
+
+
+def test_roi_of_an_empty_matte_is_none():
+    assert anchor_alpha.roi(np.zeros((H, W), np.float32)) is None
+
+
+def test_a_box_above_and_left_of_the_crop_cuts_nothing():
+    a = np.ones((100, 100), np.float32)
+    assert anchor_alpha.cut_boxes(a, [(-200, -200, -40, -40)]).min() == 1

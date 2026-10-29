@@ -13,6 +13,7 @@ from common import SCREENS
 H, W = 1080, 1920
 CARD_INK = (15, 17, 15)                       # announcement card background (#0F110F)
 BOX_PAD = 30                                  # old plates can sit a little outside their analysis zone
+ROI_PAD = 48                                  # px around Vision's matte where the anchor's edge and hair can reach
 
 
 def matte_kind(recording):
@@ -44,20 +45,34 @@ def guided(frame, p, r=8, eps=1e-3):
     return np.clip(box(a) * i + box(mp - a * mi), 0, 1)
 
 
-def alpha_for(frame, vis, plate, cam, chin):
+def roi(vis, pad=ROI_PAD):
+    """(y0, y1, x0, x1): the box around Vision's matte, padded, where all the per-frame work happens; None when the
+    matte is empty."""
+    ys = np.nonzero(vis.max(1) > 0.02)[0]
+    if not len(ys):
+        return None
+    xs = np.nonzero(vis.max(0) > 0.02)[0]
+    h, w = vis.shape
+    return max(0, ys[0] - pad), min(h, ys[-1] + 1 + pad), max(0, xs[0] - pad), min(w, xs[-1] + 1 + pad)
+
+
+def alpha_for(frame, vis, plate, cam, chin, origin=(0, 0), tex=None):
     """Anchor alpha (0..1). `vis` is Vision's matte (0..1), `plate` the set the frame was keyed onto, `chin` the row
-    under the anchors' faces: hair above it, shoulders, arms and clothes below."""
+    under the anchors' faces: hair above it, shoulders, arms and clothes below. The images may be a crop of the
+    frame whose top-left is at `origin` (row, col), with `tex` the same crop of texture(full plate)."""
     d = cv2.medianBlur(np.clip(np.abs(frame.astype(np.int16) - plate.astype(np.int16)).max(2), 0, 255)
                        .astype(np.uint8), 3).astype(np.float32)
     # The recording is low-bitrate H.264, so fine set detail (the wall slats, edges) is off by more than flat areas:
     # what counts as "the same as the set" widens with the plate's local texture.
-    tex = texture(plate)
+    tex = texture(plate) if tex is None else tex
+    oy, ox = origin
+    hh, ww = vis.shape
     person = np.clip((guided(frame, vis) - 0.35) / 0.3, 0, 1)
     differs = np.clip((d - 4 - 0.3 * tex) / 8, 0, 1)
     inner = cv2.GaussianBlur(cv2.erode((vis > 0.5).astype(np.uint8), np.ones((25, 25), np.uint8))
                              .astype(np.float32), (9, 9), 0)        # deep inside, a shirt may match the set: keep
     a = person * np.maximum(inner, differs)
-    up = np.clip((chin + 80 - np.arange(H, dtype=np.float32)) / 80, 0, 1)[:, None]
+    up = np.clip((chin + 80 - np.arange(oy, oy + hh, dtype=np.float32)) / 80, 0, 1)[:, None]
     # Hair is see-through at its edge and can reach past Vision's: the gentle plate difference adds it back.
     near = cv2.GaussianBlur(cv2.dilate((vis > 0.25).astype(np.uint8), np.ones((13, 13), np.uint8))
                             .astype(np.float32), (15, 15), 0)
@@ -67,8 +82,12 @@ def alpha_for(frame, vis, plate, cam, chin):
     a = np.maximum(a * up + cv2.erode(a, np.ones((5, 5), np.uint8)) * (1 - up), hair)
     if cam in SCREENS:                                               # the TV holds a card, not the plate's blue
         x, y, w, h = SCREENS[cam]
-        bright = np.clip((frame[y:y + h, x:x + w].max(2).astype(np.float32) - 30) / 22, 0, 1)
-        a[y:y + h, x:x + w] = np.maximum(inner[y:y + h, x:x + w], person[y:y + h, x:x + w] * bright)
+        ty0, ty1 = max(0, y - oy), min(hh, y + h - oy)
+        tx0, tx1 = max(0, x - ox), min(ww, x + w - ox)
+        if ty0 < ty1 and tx0 < tx1:
+            tv = (slice(ty0, ty1), slice(tx0, tx1))
+            bright = np.clip((frame[tv].max(2).astype(np.float32) - 30) / 22, 0, 1)
+            a[tv] = np.maximum(inner[tv], person[tv] * bright)
     return cv2.GaussianBlur(a, (3, 3), 0)
 
 
@@ -77,8 +96,15 @@ def cut_boxes(a, boxes, pad=BOX_PAD):
     in over the anchor stays where it was instead of moving with them (the fresh cover goes on top)."""
     out = a.copy()
     for x0, y0, x1, y1 in boxes:
-        out[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad] = 0
+        out[max(0, y0 - pad):max(0, y1 + pad), max(0, x0 - pad):max(0, x1 + pad)] = 0
     return out
+
+
+def cut_and_measure(a, boxes):
+    """(alpha with the old graphics cut out, anchor area in px). The area is the whole anchor's, so cutting an old
+    plate out never reads as the matte jumping."""
+    area = int((a > 0.5).sum())
+    return (cut_boxes(a, boxes) if boxes else a), area
 
 
 def unmix(frame, a, behind):
