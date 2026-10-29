@@ -43,14 +43,18 @@ THEMES = {
         "outro": "03 Intro & Outro/InFocus Outro 2026.mp4",
         "follow": "08 Follow InFocus/InFocus Follow Us.mov",
         "standby": "09 TV Standby/InFocus TV Standby.png",
+        "left": "04 Virtual Sets/InFocus Virtual Set 2026 - Left.png",
         "middle": "04 Virtual Sets/InFocus Virtual Set 2026 - Middle.png",
+        "right": "04 Virtual Sets/InFocus Virtual Set 2026 - Right.png",
     },
     "halloween": {
         "intro": "Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4",
         "outro": "Themes/Halloween/03 Intro & Outro/InFocus Outro Halloween 2026.mp4",
         "follow": "Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov",
         "standby": "Themes/Halloween/09 TV Standby/InFocus TV Standby (Halloween).png",
+        "left": "Themes/Halloween/04 Virtual Sets/InFocus Virtual Set Halloween 2026 - Left.png",
         "middle": "Themes/Halloween/04 Virtual Sets/InFocus Virtual Set Halloween 2026 - Middle.png",
+        "right": "Themes/Halloween/04 Virtual Sets/InFocus Virtual Set Halloween 2026 - Right.png",
     },
     "thanksgiving": {
         "intro": "Themes/Thanksgiving/03 Intro & Outro/InFocus Intro Thanksgiving 2026.mp4",
@@ -73,7 +77,8 @@ def theme_name(edl=None):
 
 
 def theme_file(key, edl=None, package=None):
-    """Absolute path of one of the theme's package files ("intro", "outro", "follow", "standby", "middle")."""
+    """Absolute path of one of the theme's package files ("intro", "outro", "follow", "standby", "left", "middle",
+    "right")."""
     return os.path.join(package or package_dir(edl), THEMES[theme_name(edl)][key])
 
 
