@@ -1,0 +1,105 @@
+"""The anchors' alpha on one frame of a recording whose virtual set is baked in.
+
+Vision person instances (anchor_matte) decide what is anchor, hands and fingers too, whose skin can match the set's
+wood exactly. The set plate (the package PNG the switcher keyed onto, pixel for pixel) only takes pixels away: near
+Vision's loose edge, a pixel within compression noise of the set is set. Raw green-screen feeds will get their own
+matte later; matte_kind() is where that branch goes.
+"""
+import cv2
+import numpy as np
+
+from common import SCREENS
+
+H, W = 1080, 1920
+CARD_INK = (15, 17, 15)                       # announcement card background (#0F110F)
+BOX_PAD = 30                                  # old plates can sit a little outside their analysis zone
+
+
+def matte_kind(recording):
+    """How a recording's anchors are matted: "baked" (the set is keyed into the picture)."""
+    if recording.get("kind") == "green":
+        raise NotImplementedError("green-screen recordings arrive in a later phase")
+    return "baked"
+
+
+_TEX = {}
+
+
+def texture(plate):
+    """Local contrast of the set image (0-255), where compression error runs high."""
+    key = id(plate)
+    if key not in _TEX:
+        g = cv2.cvtColor(plate, cv2.COLOR_RGB2GRAY)
+        k = np.ones((5, 5), np.uint8)
+        _TEX[key] = cv2.GaussianBlur((cv2.dilate(g, k) - cv2.erode(g, k)).astype(np.float32), (0, 0), 3)
+    return _TEX[key]
+
+
+def guided(frame, p, r=8, eps=1e-3):
+    """Guided filter: snaps Vision's soft, low-res matte to the picture's own edges."""
+    i = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
+    box = lambda x: cv2.boxFilter(x, -1, (2 * r + 1, 2 * r + 1))  # noqa: E731
+    mi, mp = box(i), box(p)
+    a = (box(i * p) - mi * mp) / (box(i * i) - mi * mi + eps)
+    return np.clip(box(a) * i + box(mp - a * mi), 0, 1)
+
+
+def alpha_for(frame, vis, plate, cam, chin):
+    """Anchor alpha (0..1). `vis` is Vision's matte (0..1), `plate` the set the frame was keyed onto, `chin` the row
+    under the anchors' faces: hair above it, shoulders, arms and clothes below."""
+    d = cv2.medianBlur(np.clip(np.abs(frame.astype(np.int16) - plate.astype(np.int16)).max(2), 0, 255)
+                       .astype(np.uint8), 3).astype(np.float32)
+    # The recording is low-bitrate H.264, so fine set detail (the wall slats, edges) is off by more than flat areas:
+    # what counts as "the same as the set" widens with the plate's local texture.
+    tex = texture(plate)
+    person = np.clip((guided(frame, vis) - 0.35) / 0.3, 0, 1)
+    differs = np.clip((d - 4 - 0.3 * tex) / 8, 0, 1)
+    inner = cv2.GaussianBlur(cv2.erode((vis > 0.5).astype(np.uint8), np.ones((25, 25), np.uint8))
+                             .astype(np.float32), (9, 9), 0)        # deep inside, a shirt may match the set: keep
+    a = person * np.maximum(inner, differs)
+    up = np.clip((chin + 80 - np.arange(H, dtype=np.float32)) / 80, 0, 1)[:, None]
+    # Hair is see-through at its edge and can reach past Vision's: the gentle plate difference adds it back.
+    near = cv2.GaussianBlur(cv2.dilate((vis > 0.25).astype(np.uint8), np.ones((13, 13), np.uint8))
+                            .astype(np.float32), (15, 15), 0)
+    hair = np.clip((d - 6 - 0.3 * tex) / 18, 0, 1) * near * up
+    # Skin and clothes have hard edges with a thin fringe of the switcher's key spill (invisible where it was keyed,
+    # plain once moved): below the chin the edge is choked 2 px.
+    a = np.maximum(a * up + cv2.erode(a, np.ones((5, 5), np.uint8)) * (1 - up), hair)
+    if cam in SCREENS:                                               # the TV holds a card, not the plate's blue
+        x, y, w, h = SCREENS[cam]
+        bright = np.clip((frame[y:y + h, x:x + w].max(2).astype(np.float32) - 30) / 22, 0, 1)
+        a[y:y + h, x:x + w] = np.maximum(inner[y:y + h, x:x + w], person[y:y + h, x:x + w] * bright)
+    return cv2.GaussianBlur(a, (3, 3), 0)
+
+
+def cut_boxes(a, boxes, pad=BOX_PAD):
+    """The alpha with nothing inside each old graphic's box (x0, y0, x1, y1), padded: a plate the switcher burned
+    in over the anchor stays where it was instead of moving with them (the fresh cover goes on top)."""
+    out = a.copy()
+    for x0, y0, x1, y1 in boxes:
+        out[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad] = 0
+    return out
+
+
+def unmix(frame, a, behind):
+    """Foreground colour with the old set colour taken out of semi-transparent edge pixels: C = aF + (1-a)B."""
+    f = frame.astype(np.float32)
+    aa = a[..., None]
+    fg = np.where(aa > 0.05, (f - (1 - aa) * behind.astype(np.float32)) / np.maximum(aa, 0.05), f)
+    edge = (aa > 0.02) & (aa < 0.98)
+    return np.where(edge, np.clip(fg, 0, 255), f)
+
+
+def median3(a, b, c):
+    return np.maximum(np.minimum(a, b), np.minimum(np.maximum(a, b), c))
+
+
+def steady(mattes):
+    """Median of each matte with its neighbours in time: Vision's edge shimmer goes, real movement stays."""
+    prev = cur = None
+    for nxt in mattes:
+        if cur is not None:
+            yield median3(prev, cur, nxt)
+        prev, cur = (cur if cur is not None else nxt), nxt
+    if cur is not None:
+        yield median3(prev, cur, cur)
