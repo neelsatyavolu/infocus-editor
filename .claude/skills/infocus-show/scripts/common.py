@@ -171,6 +171,12 @@ def recomposite_on(edl):
     return bool(edl.get("recomposite"))
 
 
+def is_fixup(overlay, show_dir):
+    """A fix-up clip made from the recording's own frames (fixups.py writes them to Graphics/fixes)."""
+    path = overlay.get("file") or ""
+    return os.path.join("Graphics", "fixes") in path or path.startswith(os.path.join(show_dir, "Graphics", "fixes"))
+
+
 def recomposited_takes(show_dir, edl):
     """Ids of the takes whose picture is their re-composited clip (Recomposite/plan.json status "recomposited"),
     unless recomposite is off or the pass was abandoned."""

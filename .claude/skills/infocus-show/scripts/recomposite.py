@@ -27,8 +27,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from anchor_alpha import CARD_INK, alpha_for, cut_and_measure, matte_kind, roi, steady, texture, unmix  # noqa: E402
-from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, load_edl, package_dir,  # noqa: E402
-                    recomposite_file, recording_of, seek_args, segment_source, theme_file, theme_name)
+from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, is_fixup, load_edl,  # noqa: E402
+                    package_dir, recomposite_file, recording_of, seek_args, segment_source, theme_file, theme_name)
 from seat import LIP_PANEL, SCALE_RANGE, edge_y, edges_touched, fit, share_transforms  # noqa: E402
 from virtual_set import SET_KEY, geometry, recorded_theme, set_image  # noqa: E402
 
@@ -159,12 +159,6 @@ def vision_mattes(path, first, count, keep):
 def face_boxes(images):
     out = subprocess.run([ensure_tool("face_boxes"), *images], capture_output=True, text=True, check=True)
     return [json.loads(line)["faces"] for line in out.stdout.splitlines()]
-
-
-def is_fixup(overlay, show_dir):
-    """A fix-up clip made from the recording's own frames (fixups.py writes them to Graphics/fixes)."""
-    path = overlay.get("file") or ""
-    return os.path.join("Graphics", "fixes") in path or path.startswith(os.path.join(show_dir, "Graphics", "fixes"))
 
 
 def cut_windows(baked, overlays, seg, show_dir):
