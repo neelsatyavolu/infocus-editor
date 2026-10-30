@@ -30,7 +30,7 @@ def waists(alphas, face_x):
     """Each anchor's waist: where their body ends, behind the desk, and only the forearms and hands carry on in
     front (or where the switcher cropped the key). Read from the anchor's own columns (those nearest their face):
     below the shoulders, the first row under the widest one where the silhouette narrows to under 80% of it.
-    Returns [(centre x, waist row)] per anchor."""
+    Returns [(centre x, waist row, leftmost and rightmost column of the body at that row)] per anchor."""
     sil = np.max(np.stack(alphas), 0) > 0.5
     cols = np.nonzero(sil.sum(0) > 150)[0]
     if not len(cols):
@@ -49,7 +49,8 @@ def waists(alphas, face_x):
         widest = start + int(np.argmax(width[start:bottom + 1]))
         narrow = np.nonzero(width[widest:bottom + 1] < 0.8 * width[widest])[0]
         waist = widest + int(narrow[0]) - 1 if len(narrow) else bottom
-        out.append((float(run.mean()), float(waist)))
+        at = run[own[waist]] if own[waist].any() else run
+        out.append((float(run.mean()), float(waist), float(at.min()), float(at.max())))
     return out
 
 
@@ -74,6 +75,31 @@ def body_extent(sil):
             float(max(stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] - 1 for i in big)))
 
 
+def desk_line(sil, cols, tol=5.0):
+    """Where the real desk hides the anchor, as (columns, row on that line per column): the straight line (it can
+    slant in a side camera) that most of the anchor's column bottoms sit on. Forearms on the desk end below it and a
+    raised elbow or hair above it; neither counts. Empty arrays when no line is clear."""
+    cols = np.asarray([c for c in cols if sil[:, c].any()])
+    if len(cols) < 30:
+        return np.array([]), np.array([])
+    bottoms = np.array([np.nonzero(sil[:, c])[0].max() for c in cols], np.float32)
+    rng = np.random.default_rng(0)
+    best = None
+    for _ in range(300):
+        i, j = rng.choice(len(cols), 2, replace=False)
+        if abs(int(cols[i]) - int(cols[j])) < 40:
+            continue
+        k = (bottoms[j] - bottoms[i]) / (cols[j] - cols[i])
+        inl = np.abs(bottoms - (bottoms[i] + k * (cols - cols[i]))) <= tol
+        if best is None or inl.sum() > best.sum():
+            best = inl
+    if best is None or best.sum() < 30:
+        return np.array([]), np.array([])
+    k, b = np.polyfit(cols[best], bottoms[best], 1)
+    inl = np.abs(bottoms - (k * cols + b)) <= tol
+    return cols[inl], (k * cols[inl] + b).astype(np.float32)
+
+
 def crop_row(sil):
     """The row the switcher's key was cropped straight across at (the body ends in a wide, flat edge above the frame
     bottom), or None when the silhouette tapers off (forearms and hands) or runs off the frame."""
@@ -85,6 +111,11 @@ def crop_row(sil):
     if last >= H - 3:
         return None
     return last if widths[min(H - 1, last + 6)] < 0.25 * widths.max() else None
+
+
+def lowest_edge(curve, x0, x1):
+    """The lowest point (largest row) of a table edge between columns x0 and x1."""
+    return float(np.max(edge_y(curve, np.linspace(x0, x1, 16))))
 
 
 def fit(geom, boxes, touch, alphas, rest=None):
@@ -105,7 +136,6 @@ def fit(geom, boxes, touch, alphas, rest=None):
     cx = np.median(arr[:, :, 0] + arr[:, :, 2] / 2, 0)
     ws = waists(alphas, cx)
     wrists = [(r[0], r[2]) for r in rest or [] if len(r) > 2 and r[2] is not None]
-    spans = [r[3] for r in rest or [] if len(r) > 3 and r[3] is not None]
     if not ws:
         return 1.0, 0.0, 0.0, "no anchor found; left as is"
     fh = float(np.median(arr[:, :, 3]))
@@ -118,12 +148,14 @@ def fit(geom, boxes, touch, alphas, rest=None):
     bottom_cols = np.nonzero(sil[H - 3:].any(0))[0].astype(np.float32)
     crop = crop_row(sil)
     crop_cols = np.nonzero(sil[crop])[0].astype(np.float32) if crop is not None else None
-    if crop_cols is not None and spans:                              # the crop under the bodies, not under the arms
-        under = np.zeros(len(crop_cols), bool)
-        for a, b in spans:
-            under |= (crop_cols >= a) & (crop_cols <= b)
-        crop_cols = crop_cols[under] if under.any() else crop_cols
     left, right = body_extent(sil)
+    # Where the real desk hid each anchor must reach the virtual table everywhere along it: the line can slant (a
+    # side camera, an anchor leaning in) and the table's edge curves, and any part above it would float.
+    every = np.nonzero(sil.sum(0) > 0)[0]
+    owner = np.argmin(np.abs(every[:, None] - np.asarray(cx)[None, :]), 1)
+    lines = [desk_line(sil, every[owner == i]) for i in range(len(cx))]
+    body_cols = np.concatenate([c for c, _ in lines]).astype(np.float32) if lines else np.array([])
+    bottoms = np.concatenate([b for _, b in lines]) if lines else np.array([])
     screen = geom.get("screen")
     beside = None                                                    # the anchor's edge next to the TV, at its height
     if screen:
@@ -151,22 +183,26 @@ def fit(geom, boxes, touch, alphas, rest=None):
             tx = min(tx, W - 1 - FRAME_MARGIN - s * right)
         if not touch["left"]:
             tx = max(tx, FRAME_MARGIN - s * left)
-        ty = float(np.mean([edge_y(back, s * x + tx) + WAIST_TUCK - s * w for x, w in ws]))
+        # The body's bottom goes on the table's back edge, at its lowest point under the body: the side sets' edge
+        # slopes, and anywhere it sits lower than the body a gap of the set would show under the shirt.
+        ty = float(np.mean([lowest_edge(back, s * a + tx, s * b + tx) + WAIST_TUCK - s * w for _, w, a, b in ws]))
         for x, w in wrists:                                          # the hands stay on the table top
             ty = min(ty, float(edge_y(lip, s * x + tx)) - HAND_MARGIN - s * w)
-        if crop_cols is not None:                                    # a switcher crop sits on the back edge, no lower
-            ty = min(ty, float(np.median(edge_y(back, s * crop_cols + tx))) + WAIST_TUCK - s * crop)
+        if len(body_cols):                                           # no part of the body floats above the table
+            ty = max(ty, float(np.max(edge_y(back, s * body_cols + tx) - s * bottoms)) + WAIST_TUCK)
+        if crop_cols is not None:                                    # a switcher crop never floats above the table
+            ty = max(ty, float(np.max(edge_y(back, s * crop_cols + tx))) + WAIST_TUCK - s * crop)
         if len(bottom_cols):                                         # a cut at the frame bottom stays behind the panel
             ty = max(ty, float(np.max(edge_y(lip, s * bottom_cols + tx))) + LIP_PANEL - s * (H - 1))
         return tx, ty
 
     tx, ty = place(s)
     if s * top + ty < HEADROOM:                                      # a tight camera: seated, the heads hit the top
-        w = np.mean([w for _, w in ws])
-        s = float(np.clip((np.mean([edge_y(back, x) for x, _ in ws]) + WAIST_TUCK - HEADROOM) / (w - top),
+        w = np.mean([r[1] for r in ws])
+        s = float(np.clip((np.mean([edge_y(back, r[0]) for r in ws]) + WAIST_TUCK - HEADROOM) / (w - top),
                           SCALE_RANGE[0], s))
         tx, ty = place(s)
-    note = (f"faces h={fh:.0f} at x={[round(float(v)) for v in cx]}; waists at y={[round(w) for _, w in ws]}; "
+    note = (f"faces h={fh:.0f} at x={[round(float(v)) for v in cx]}; waists at y={[round(r[1]) for r in ws]}; "
             f"crop {crop}; "
             f"wanted scale {wanted:.3f}")
     return s, tx, ty, note + f"; touches {[k for k, v in touch.items() if v]}"

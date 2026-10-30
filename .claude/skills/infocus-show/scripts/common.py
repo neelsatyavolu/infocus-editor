@@ -204,7 +204,8 @@ def take_signature(show_dir, edl, seg):
               if o.get("covers") and recording_of(edl, o)["id"] == rid
               and o["covers"][0] < seg["out"] and o["covers"][1] >= seg["in"]]
     return json.loads(json.dumps({"recording": rid, "cam": seg.get("cam"), "in": seg["in"], "out": seg["out"],
-                                  "card": seg.get("card"), "covers": covers, "theme": theme_name(edl)}))
+                                  "card": seg.get("card"), "covers": covers, "theme": theme_name(edl),
+                                  "seat": seg.get("seat")}))
 
 
 def stale_takes(show_dir, edl):

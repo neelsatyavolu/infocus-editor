@@ -214,3 +214,13 @@ def test_samples_without_anyone_in_them_are_dropped():
     full[300:900, 500:1400] = 1
     assert recomposite.usable([full, np.zeros_like(full), full, full]) == [0, 2, 3]
     assert recomposite.usable([np.zeros_like(full)] * 4) == [0, 1, 2, 3]   # nobody anywhere: keep them all
+
+
+def test_the_agents_seat_replaces_the_scripts_guess():
+    seg = {"id": "l", "seat": {"scale": 0.95, "x": 300, "y": 80}}
+    entries = [{"id": "l", "recording": "r1", "cam": "L", "s": 0.94, "tx": 295.0, "ty": 62.0, "found": 6},
+               {"id": "r", "recording": "r1", "cam": "R", "s": 1.0, "tx": 0.0, "ty": 0.0, "found": 6}]
+    out = recomposite.apply_seats(entries, {"l": seg, "r": {"id": "r"}})
+    assert (out[0]["s"], out[0]["tx"], out[0]["ty"], out[0]["seated_by"]) == (0.95, 300.0, 80.0, "agent")
+    assert (out[1]["s"], out[1]["tx"], out[1]["ty"]) == (1.0, 0.0, 0.0) and out[1].get("seated_by") != "agent"
+    assert entries[0]["tx"] == 295.0                             # inputs untouched

@@ -146,3 +146,11 @@ def test_a_fixup_running_into_a_recomposited_take_fails_rule_12(tmp_path):
 def test_rule_4_trusts_what_the_render_used_not_a_newer_plan():
     layout = {"segments": [{"id": "open", "recomposite": True}, {"id": "chess"}]}
     assert verify_render.rendered_recomposited(layout, {"open", "chess"}) == {"open"}
+
+
+def test_changing_a_takes_seat_makes_it_stale(tmp_path):
+    d, edl = show_dir(tmp_path, None)
+    (tmp_path / "Recomposite").mkdir()
+    (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(signed_plan(edl, d)))
+    seated = {**edl, "segments": [{**TAKES[0], "seat": {"scale": 1.0, "x": 0, "y": 12}}, TAKES[1]]}
+    assert [f["segment"] for f in verify_render.rule_set(d, seated)] == ["open"]

@@ -206,7 +206,18 @@ A re-composited show cuts the anchors out of every take and seats them properly 
   uv run --with numpy --with opencv-python python $S/recomposite.py <showDir>
   ```
   About 1.5× the takes' length on this Mac. It writes `Recomposite/plan.json` and, per take, a clip and `<id>-before.jpg` / `-after.jpg` / `-alpha.jpg`.
-- **View** one `-after.jpg` per camera (M, L, R): the anchors seated on the table, edges clean, no old set or graphic around them.
+- **Seat every take yourself.** The script's seat is only a first guess; you decide. Before rendering, preview each take (one middle frame, a few seconds):
+  ```
+  uv run --with numpy --with opencv-python python $S/recomposite.py <showDir> --preview <id>
+  ```
+  It prints the seat it used (`scale`, `x`, `y`) and writes `Recomposite/<id>-preview-after.jpg` and `-guide.jpg` (the table's back edge in magenta, its front lip in yellow). View it and check, against the 2025 reference look:
+  - **the body's bottom on the table's back edge:** where the shirt ends, or the switcher's straight crop line, sits right on the magenta edge all the way along. Any strip of the set showing under it is floating: move them down. The body never shows below the edge (only arms and hands do).
+  - **arms and hands on the table top**, in front of the edge and above the yellow lip, never hidden behind the front panel
+  - **on a side set, the head, hair and shoulders off the TV screen**, as far as the frame allows
+  - **in frame:** nobody who was fully in shot is cut off by the frame edge
+  - **the same size and height** in every take from one camera
+  When it's off, write the take's own seat into `edl.json`, starting from the printed numbers, e.g. `"seat": {"scale": 0.94, "x": 295, "y": 100}` (`y` larger moves them down, `x` larger moves them right, `scale` 0.8-1.25), and preview again until it's right. Give takes from one camera the same seat unless the camera moved. Record each seat you set as an `other` decision (not flagged). Then run `recomposite.py` (or `--only <id>`) to render.
+- **View** one `-after.jpg` per camera (M, L, R) after rendering: edges clean, no old set or graphic around them.
 - **Copy its decisions:** every take's `flag` in `plan.json` is a flagged `other` decision (a take that kept its original picture, or kept a rough matte on a different set). A take with `"tight": true` gets an `other` decision (not flagged) that its camera was framed tight, so the anchors sit a little low. An `"abandoned"` plan (too slow for this Mac) is one flagged `other` decision, and the show builds from the recordings as usual.
 - **Takes that kept their original picture** (`"status": "fallback"`) still need `foreground.py --only <id>` when they have a card.
 

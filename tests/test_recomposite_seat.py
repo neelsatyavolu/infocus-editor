@@ -34,9 +34,9 @@ def test_waist_lands_on_the_table_back_edge():
     geom = virtual_set.geometry("R", "")
     a = seated(400, 1000, 1300, 1700)
     s, tx, ty, _ = seat.fit(geom, [[[1450, 330, 100, 130]]], NO_TOUCH, [a])
-    (cx, waist), = seat.waists([a], [1500])
+    (cx, waist, _, _), = seat.waists([a], [1500])
     placed = s * waist + ty
-    assert abs(placed - (seat.edge_y(geom["desk_back"], s * cx + tx) + seat.WAIST_TUCK)) <= 6
+    assert abs(placed - (seat.lowest_edge(geom["desk_back"], s * 1300 + tx, s * 1699 + tx) + seat.WAIST_TUCK)) <= 6
 
 
 def test_tight_two_shot_never_shows_its_bottom_cut():
@@ -52,7 +52,7 @@ def test_tight_two_shot_never_shows_its_bottom_cut():
 def test_well_seated_shot_is_left_alone():
     geom = virtual_set.geometry("R", "")
     seat_x, seat_h = geom["seats"]["x"][0], geom["seats"]["h"]
-    waist = round(float(seat.edge_y(geom["desk_back"], seat_x)) + seat.WAIST_TUCK)
+    waist = round(seat.lowest_edge(geom["desk_back"], seat_x - 190, seat_x + 189) + seat.WAIST_TUCK)
     a = seated(300, waist + 1, seat_x - 190, seat_x + 190)   # waist row = the back edge under this anchor
     box = [[seat_x - 50, 260, 100, seat_h]]
     s, tx, ty, note = seat.fit(geom, [box], NO_TOUCH, [a])
@@ -114,21 +114,21 @@ def test_settle_leaves_a_nearly_seated_camera_alone():
 def test_the_waist_is_where_the_body_ends_not_where_the_hands_do():
     a = torso(400, 900, 1300, 1700)                  # the body, down to where the real desk hides it
     a[900:1000, 1420:1580] = 1                       # forearms and clasped hands on the desk, in front
-    (cx, waist), = seat.waists([a], [1500])
+    (cx, waist, _, _), = seat.waists([a], [1500])
     assert abs(waist - 899) <= 2
 
 
 def test_the_waist_is_the_switchers_crop_line():
     a = torso(400, 840, 1300, 1700)                  # the switcher cropped the key straight across at 840
     a[840:850, 1480:1520] = 1                        # a few stray pixels below it
-    (cx, waist), = seat.waists([a], [1500])
+    (cx, waist, _, _), = seat.waists([a], [1500])
     assert abs(waist - 839) <= 2
 
 
 def test_arms_spread_wider_than_the_body_end_at_their_crop():
     a = torso(400, 990, 1400, 1600)                  # a narrow body
     a[850:990, 1250:1750] = 1                        # arms spread wide on the desk, cropped at 990
-    (cx, waist), = seat.waists([a], [1500])
+    (cx, waist, _, _), = seat.waists([a], [1500])
     assert abs(waist - 989) <= 2
 
 
@@ -139,8 +139,9 @@ def test_the_body_bottom_lands_on_the_back_edge_even_with_a_pose():
     boxes = [[[530, 300, 110, 215], [1310, 300, 110, 215]]]
     rest = [(580.0, 860.0, 980.0, (430.0, 730.0)), (1360.0, 860.0, 980.0, (1210.0, 1510.0))]
     s, tx, ty, _ = seat.fit(geom, boxes, NO_TOUCH, [a], rest=rest)
-    for cx in (580.0, 1360.0):
-        assert abs(s * 929 + ty - (seat.edge_y(geom["desk_back"], s * cx + tx) + seat.WAIST_TUCK)) <= 8
+    for lo, hi in ((400, 759), (1180, 1539)):
+        low = seat.lowest_edge(geom["desk_back"], s * lo + tx, s * hi + tx)
+        assert abs(s * 929 + ty - (low + seat.WAIST_TUCK)) <= 8
 
 
 def test_a_switcher_crop_sits_on_the_back_edge():
@@ -165,10 +166,10 @@ def test_forearms_tapering_below_the_body_are_not_a_crop():
 
 def test_hands_stay_on_the_table_top_in_front_of_the_panel():
     geom = virtual_set.geometry("L", "")
-    a = seated(400, 960, 1300, 1700)
-    rest = [(1500.0, 850.0, 1010.0, None)]              # leaning in: forearms run toward the camera
+    a = seated(400, 960, 1400, 1600)
+    rest = [(1500.0, 850.0, 980.0, None)]               # hands just in front of the body, on the desk
     s, tx, ty, _ = seat.fit(geom, [[[1450, 280, 100, 250]]], NO_TOUCH, [a], rest=rest)
-    assert s * 1010 + ty <= seat.edge_y(geom["desk_lip"], s * 1500 + tx) - seat.HAND_MARGIN + 1
+    assert s * 980 + ty <= seat.edge_y(geom["desk_lip"], s * 1500 + tx) - seat.HAND_MARGIN + 1
 
 
 def test_a_shot_already_cut_at_the_bottom_is_never_enlarged():
@@ -185,14 +186,12 @@ def test_an_anchor_in_frame_is_never_pushed_out_of_it():
     assert s * 1879 + tx <= W - seat.FRAME_MARGIN + 1
 
 
-def test_a_crop_sits_on_the_back_edge_under_the_body():
+def test_a_crop_sits_on_the_table_where_it_is_lowest():
     geom = virtual_set.geometry("L", "")               # its back edge drops from ~930 on the left to 1000 on the right
     a = torso(400, 1040, 1500, 1800)                   # the body, cropped straight across at 1040
-    a[900:1040, 900:1500] = 1                          # forearms reaching left over the desk, cropped too
-    rest = [(1650.0, 900.0, None, (1500.0, 1800.0))]   # the shoulders say where the body is
-    s, tx, ty, _ = seat.fit(geom, [[[1600, 280, 100, 252]]], NO_TOUCH, [a], rest=rest)
-    mid = s * 1650 + tx
-    assert abs(s * 1039 + ty - (seat.edge_y(geom["desk_back"], mid) + seat.WAIST_TUCK)) <= 8
+    s, tx, ty, _ = seat.fit(geom, [[[1600, 280, 100, 252]]], NO_TOUCH, [a])
+    low = seat.lowest_edge(geom["desk_back"], s * 1500 + tx, s * 1799 + tx)
+    assert abs(s * 1039 + ty - (low + seat.WAIST_TUCK)) <= 8
 
 
 def test_a_side_anchor_moves_off_the_tv_while_staying_in_frame():
@@ -226,3 +225,40 @@ def test_a_shot_cut_at_the_bottom_is_never_enlarged_even_with_a_pose():
     rest = [(500.0, 900.0, 1010.0, (350.0, 650.0))]
     s, _, _, _ = seat.fit(geom, [[[450, 380, 80, 200]]], {**NO_TOUCH, "bottom": True}, [a], rest=rest)
     assert s <= 1.0
+
+
+def test_the_body_bottom_never_floats_above_a_curving_table():
+    """The side sets' back edge slopes; under the whole width of the body's bottom it must be at or below the
+    edge, or a gap of the set shows under the shirt."""
+    for cam, body in (("L", (1350, 1880)), ("R", (40, 640))):
+        geom = virtual_set.geometry(cam, "")
+        a = torso(400, 1000, *body)                    # cropped straight across at 1000
+        cx = sum(body) / 2
+        s, tx, ty, _ = seat.fit(geom, [[[cx - 60, 250, 120, 252]]], NO_TOUCH, [a])
+        for x in range(body[0], body[1], 20):
+            assert s * 999 + ty >= seat.edge_y(geom["desk_back"], s * x + tx) - 1, (cam, x)
+
+
+def test_a_slanting_hem_never_floats_above_the_table():
+    """Leaning in, the hem at the back of the body sits higher than at the front: every part of it must still
+    reach the table's back edge."""
+    geom = virtual_set.geometry("L", "")
+    a = torso(400, 1000, 1350, 1880)
+    for i, c in enumerate(range(1600, 1880)):         # the back of the body: the hem rises to 950
+        a[1000 - int(50 * i / 280):1000, c] = 0
+    s, tx, ty, _ = seat.fit(geom, [[[1550, 250, 120, 252]]], NO_TOUCH, [a])
+    for c in range(1350, 1880, 10):
+        bottom = np.nonzero(a[:, c])[0].max()
+        assert s * bottom + ty >= seat.edge_y(geom["desk_back"], s * c + tx) - 1, c
+
+
+def test_the_desk_line_ignores_raised_elbows_and_arms_on_the_desk():
+    a = torso(400, 980, 600, 1200) > 0                  # the body, hidden behind the desk along a line
+    for i, c in enumerate(range(600, 1200)):
+        a[980 - int(40 * i / 600):980, c] = False         # the desk line slants: 980 on the left, 940 on the right
+    a[980:1040, 800:950] = True                          # forearms and hands on the desk, in front
+    a[700:1000, 1200:1260] = False
+    a[400:760, 1200:1260] = True                         # a raised elbow on the right, ending in mid-air
+    cols, line = seat.desk_line(a, np.arange(600, 1260))
+    assert abs(float(line[cols == 600][0]) - 979) <= 3 and abs(float(line[cols == 1190][0]) - 941) <= 3
+    assert not ((cols >= 1200) & (cols < 1260)).any() and not ((cols >= 800) & (cols < 950)).any()

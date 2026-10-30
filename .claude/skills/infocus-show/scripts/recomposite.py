@@ -463,8 +463,8 @@ def render_chunk(job):
     return areas
 
 
-def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
-    """Render one take's clip; returns its per-frame anchor areas."""
+def take_jobs(edl, show_dir, seg, entry, theme, pkg, workers, tmp):
+    """The render_chunk jobs that render one take, split across `workers`."""
     path, offset = segment_source(edl, seg)
     start, n = seg["in"] + offset, seg["out"] - seg["in"]
     cam = seg["cam"]
@@ -485,6 +485,13 @@ def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
                      "card_first": first, "standby": theme_file("standby", edl, pkg), "boxes": boxes, "runs": runs,
                      "still": start + n // 2, "stills": os.path.join(os.path.dirname(out), seg["id"]),
                      "out": os.path.join(tmp, f"{seg['id']}-{i:03d}.mp4")})
+    return jobs
+
+
+def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
+    """Render one take's clip; returns its per-frame anchor areas."""
+    jobs = take_jobs(edl, show_dir, seg, entry, theme, pkg, workers, tmp)
+    out = recomposite_file(show_dir, seg)
     areas = [a for part in pool.map(render_chunk, jobs) for a in part]
     listing = os.path.join(tmp, f"{seg['id']}-chunks.txt")
     with open(listing, "w") as f:
@@ -495,6 +502,33 @@ def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
     if mapping != list(range(len(areas))):
         apply_holds(out, mapping, edl["fps"])
     return areas
+
+
+def apply_seats(entries, by_id):
+    """The editing agent's own seat for a take (edl.json "seat": {"scale", "x", "y"}) replaces the script's guess.
+    Returns new dicts."""
+    out = []
+    for e in entries:
+        seat = by_id.get(e["id"], {}).get("seat")
+        out.append({**e, "s": float(seat.get("scale", 1.0)), "tx": float(seat.get("x", 0)),
+                    "ty": float(seat.get("y", 0)), "seated_by": "agent"} if seat else dict(e))
+    return out
+
+
+def preview(edl, show_dir, seg, entry, theme, pkg, tmp):
+    """One frame from the middle of a take, re-composited with `entry`'s seat: <id>-preview-after.jpg, and the same
+    with the table's back edge (magenta) and front lip (yellow) drawn on, <id>-preview-guide.jpg."""
+    job = take_jobs(edl, show_dir, seg, entry, theme, pkg, 1, tmp)[0]
+    middle = job["still"]
+    stem = os.path.join(os.path.dirname(recomposite_file(show_dir, seg)), f"{seg['id']}-preview")
+    render_chunk({**job, "first": middle, "count": 1, "card_first": middle - job["first"], "stills": stem,
+                  "out": os.path.join(tmp, "preview.mp4")})
+    img = cv2.imread(stem + "-after.jpg")
+    geom = geometry(seg["cam"], theme)
+    cv2.polylines(img, [np.array(geom["desk_back"], np.int32)], False, (255, 0, 255), 2)
+    cv2.polylines(img, [np.array(geom["desk_lip"], np.int32)], False, (0, 255, 255), 2)
+    cv2.imwrite(stem + "-guide.jpg", img)
+    return stem + "-after.jpg", stem + "-guide.jpg"
 
 
 def adopt(entry, siblings):
@@ -510,7 +544,8 @@ def adopt(entry, siblings):
 def plan_entry(e, show_dir, edl, seg):
     """A take's line in plan.json, with what it was made from (stale_takes compares it before every build)."""
     keys = ("id", "recording", "cam", "recorded_theme", "s", "tx", "ty", "status", "flag", "note", "tight")
-    return {**{k: e[k] for k in keys}, "source": take_signature(show_dir, edl, seg)}
+    return {**{k: e[k] for k in keys}, "seated_by": e.get("seated_by", "script"),
+            "source": take_signature(show_dir, edl, seg)}
 
 
 def flag(seg_id, reason, action):
@@ -594,7 +629,8 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     show_dir = argv[1]
-    only = argv[argv.index("--only") + 1] if "--only" in argv else None
+    look = argv[argv.index("--preview") + 1] if "--preview" in argv else None
+    only = look or (argv[argv.index("--only") + 1] if "--only" in argv else None)
     workers = int(argv[argv.index("--workers") + 1]) if "--workers" in argv else max(2, (os.cpu_count() or 4) // 2)
     edl = load_edl(show_dir)
     theme, pkg = theme_name(edl), package_dir(edl)
@@ -611,6 +647,13 @@ def main(argv):
     tmp = tempfile.mkdtemp(prefix="recomposite-")
     try:
         entries = seat_takes([measure(edl, seg, theme, pkg, tmp, show_dir) for seg in takes], old, only)
+        entries = apply_seats(entries, {s["id"]: s for s in takes})
+        if look:
+            e = entries[0]
+            after, guide = preview(edl, show_dir, takes[0], e, theme, pkg, tmp)
+            print(f"{e['id']}: seat scale {e['s']:.3f}, x {e['tx']:.0f}, y {e['ty']:.0f} "
+                  f"({e.get('seated_by', 'script')}); filmed on {e['recorded_theme']!r} set\n{after}\n{guide}")
+            return 0
         plan_flag, abandoned = render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
