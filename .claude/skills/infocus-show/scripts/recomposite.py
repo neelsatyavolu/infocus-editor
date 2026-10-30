@@ -256,14 +256,15 @@ def arm_poses(path, first, count):
 
 
 def elbows(poses, boxes, keep):
-    """Each anchor's [(x, elbow row, lowest wrist row or None)] over the sampled frames, matched to their face by
-    the shoulders; None unless every anchor's elbows were seen on at least half the samples."""
+    """Each anchor's [(x, elbow row, lowest wrist row or None, (left, right) shoulder x or None)] over the sampled
+    frames, matched to their face by the shoulders; None unless every anchor's elbows were seen on at least half
+    the samples."""
     per = [sorted(b, key=lambda r: -r[2])[:keep] for b in boxes if len(b) >= keep]
     if not per:
         return None
     face_x = sorted(float(np.median([sorted(b, key=lambda r: r[0])[i][0] + sorted(b, key=lambda r: r[0])[i][2] / 2
                                      for b in per])) for i in range(keep))
-    rows, wrists = [[] for _ in face_x], [[] for _ in face_x]
+    rows, wrists, spans = [[] for _ in face_x], [[] for _ in face_x], [[] for _ in face_x]
     for people in poses:
         for p in people:
             js = [p[k] for k in ("ls", "rs") if k in p and p[k][2] >= POSE_MIN]
@@ -275,12 +276,15 @@ def elbows(poses, boxes, keep):
             i = int(np.argmin([abs(mx - x) for x in face_x]))
             if abs(mx - face_x[i]) < 250:
                 rows[i].append(float(np.mean(es)))
+                if len(js) == 2:
+                    spans[i].append(sorted(j[0] for j in js))
                 if ws:
                     wrists[i].append(float(max(ws)))
     if any(len(r) < len(poses) / 2 for r in rows):
         return None
-    return [(x, float(np.median(r)), float(np.median(w)) if len(w) >= len(poses) / 2 else None)
-            for x, r, w in zip(face_x, rows, wrists)]
+    return [(x, float(np.median(r)), float(np.median(w)) if len(w) >= len(poses) / 2 else None,
+             tuple(float(v) for v in np.median(sp, 0)) if len(sp) >= len(poses) / 2 else None)
+            for x, r, w, sp in zip(face_x, rows, wrists, spans)]
 
 
 def usable(mats):

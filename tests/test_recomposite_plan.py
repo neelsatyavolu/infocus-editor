@@ -188,7 +188,8 @@ def test_elbows_are_matched_to_each_anchor_by_their_shoulders():
     left = {"ls": [480, 450, 0.8], "rs": [700, 450, 0.8], "le": [460, 850, 0.8], "re": [720, 870, 0.8]}
     right = {"ls": [1260, 450, 0.8], "rs": [1480, 450, 0.8], "le": [1240, 900, 0.8], "re": [1500, 900, 0.8]}
     got = recomposite.elbows([[left, right]] * 4, boxes, 2)
-    assert [round(y) for _, y, _ in got] == [860, 900]
+    assert [round(y) for _, y, _, _ in got] == [860, 900]
+    assert [tuple(round(v) for v in span) for _, _, _, span in got] == [(480, 700), (1260, 1480)]
 
 
 def test_without_elbows_on_most_samples_there_is_no_pose_seat():
