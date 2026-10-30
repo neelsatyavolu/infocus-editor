@@ -103,6 +103,27 @@ def cut_boxes(a, boxes, pad=BOX_PAD):
     return out
 
 
+def patch(frame, clean, boxes, feather=8):
+    """`frame` with each box (x0, y0, x1, y1) taken from `clean`, a frame of the same take without the old graphic,
+    blended over `feather` px just outside the box so there's no seam. Works on images or mattes."""
+    out = frame.astype(np.float32).copy()
+    h, w = out.shape[:2]
+    for x0, y0, x1, y1 in boxes:
+        g = 2 * feather
+        ry0, ry1, rx0, rx1 = max(0, y0 - g), min(h, y1 + g), max(0, x0 - g), min(w, x1 + g)
+        if ry0 >= ry1 or rx0 >= rx1:
+            continue
+        m = np.zeros((ry1 - ry0, rx1 - rx0), np.float32)
+        m[max(0, y0 - feather - ry0):max(0, y1 + feather - ry0),
+          max(0, x0 - feather - rx0):max(0, x1 + feather - rx0)] = 1
+        m = cv2.blur(m, (2 * feather + 1, 2 * feather + 1))
+        if out.ndim == 3:
+            m = m[..., None]
+        region = (slice(ry0, ry1), slice(rx0, rx1))
+        out[region] = out[region] * (1 - m) + clean[region].astype(np.float32) * m
+    return out
+
+
 def cut_and_measure(a, boxes):
     """(alpha with the old graphics cut out, anchor area in px). The area is the whole anchor's, so cutting an old
     plate out never reads as the matte jumping."""

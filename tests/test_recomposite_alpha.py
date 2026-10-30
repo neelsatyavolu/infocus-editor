@@ -99,3 +99,12 @@ def test_without_a_plate_the_alpha_is_visions_matte():
     vis[400:800, 800:1100] = 1
     a = anchor_alpha.alpha_for(frame, vis, None, "M", chin=300)
     assert a[600, 950] > 0.95 and a[600, 760] < 0.05 and a[370, 950] < 0.05   # no halo of the old set
+
+
+def test_patch_takes_the_box_from_the_clean_frame_with_a_soft_edge():
+    frame = np.zeros((100, 100, 3), np.float32)
+    clean = np.full((100, 100, 3), 200, np.float32)
+    out = anchor_alpha.patch(frame, clean, [(20, 20, 60, 60)], feather=4)
+    assert out[40, 40, 0] == 200 and out[90, 90, 0] == 0          # inside from the clean frame, outside untouched
+    assert 0 < out[40, 17, 0] < 200                                 # a soft edge, no seam
+    assert frame.max() == 0                                         # input untouched

@@ -14,6 +14,7 @@ picture when that is the same set the show goes out on; otherwise it keeps its b
 show never mixes two sets.
 """
 import json
+import math
 import multiprocessing
 import os
 import shutil
@@ -26,9 +27,11 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from anchor_alpha import CARD_INK, alpha_for, cut_and_measure, matte_kind, roi, steady, texture, unmix  # noqa: E402
+from anchor_alpha import (CARD_INK, alpha_for, cut_and_measure, matte_kind, patch, roi, steady,  # noqa: E402
+                          texture, unmix)
 from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, is_fixup, load_edl,  # noqa: E402
-                    package_dir, recomposite_file, recording_of, seek_args, segment_source, theme_file, theme_name)
+                    overlay_file, package_dir, recomposite_file, recording_of, seek_args, segment_source,
+                    theme_file, theme_name)
 from seat import LIP_PANEL, SCALE_RANGE, edge_y, edges_touched, fit, share_transforms  # noqa: E402
 from virtual_set import SET_KEY, geometry, recorded_theme, set_image  # noqa: E402
 
@@ -163,29 +166,79 @@ def face_boxes(images):
     return [json.loads(line)["faces"] for line in out.stdout.splitlines()]
 
 
-def cut_windows(baked, overlays, seg, show_dir):
+def per_frame_cuts(window, at, boxes, clip_rate, show_rate):
+    """[(t, t, box)] for each recording frame t of an old graphic's window: the box its fresh cover (placed at
+    recording frame `at`, drawn-pixel `boxes` per clip frame) has drawn on that frame. Old and fresh graphics animate
+    in step (the cover goes on 2 frames early), so while the cover is still small only that much is cut."""
+    out = []
+    for t in range(window["first"], window["last"] + 1):
+        i = math.floor((t - at) * clip_rate / show_rate)
+        if 0 <= i < len(boxes) and boxes[i]:
+            out.append((t, t, tuple(boxes[i])))
+    return out
+
+
+def patch_runs(cuts, take_in, take_out):
+    """[(first, last, clean frame)] for each run of consecutive frames with an old graphic over the anchor: the
+    nearest frame of the take without one (just before the run, else just after it), or None when the graphic
+    covers the whole take."""
+    frames = sorted({t for a, b, _ in cuts for t in range(a, b + 1) if take_in <= t < take_out})
+    runs = []
+    for t in frames:
+        if runs and t == runs[-1][1] + 1:
+            runs[-1][1] = t
+        else:
+            runs.append([t, t])
+    out = []
+    for a, b in runs:
+        ref = a - 1 if a - 1 >= take_in else (b + 1 if b + 1 < take_out else None)
+        out.append((a, b, ref))
+    return out
+
+
+def cut_windows(baked, overlays, seg, show_dir, cover_boxes=None, show_rate=60000 / 1001):
     """Old burned-in graphics inside a take that a fresh package graphic covers: [(first, last, box)] in recording
     frames. Only those are cut out of the anchor, so the fresh cover hides the hole; a logo bug the switcher fired
-    over the set wall simply disappears with the old set."""
+    over the set wall simply disappears with the old set. `cover_boxes(overlay)` -> (boxes, clip rate) gives the
+    cover's drawn area frame by frame; without it the old graphic's whole zone is cut."""
     from verify_render import ZONES
-    fresh = [o["covers"] for o in overlays if o.get("covers") and not is_fixup(o, show_dir)]
-    return [(w["first"], w["last"], ZONES[w["zone"]]) for w in baked
-            if w["zone"] in ZONES and w["first"] < seg["out"] and w["last"] >= seg["in"]
-            and any(a <= w["last"] and b >= w["first"] for a, b in fresh)]
+    fresh = [o for o in overlays if o.get("covers") and not is_fixup(o, show_dir)]
+    out = []
+    for w in baked:
+        if w["zone"] not in ZONES or w["first"] >= seg["out"] or w["last"] < seg["in"]:
+            continue
+        cover = next((o for o in fresh if o["covers"][0] <= w["last"] and o["covers"][1] >= w["first"]), None)
+        if cover is None:
+            continue
+        drawn = cover_boxes(cover) if cover_boxes else None
+        if drawn:
+            boxes, clip_rate = drawn
+            out += per_frame_cuts(w, cover["at"], boxes, clip_rate, show_rate)
+        else:
+            out.append((w["first"], w["last"], ZONES[w["zone"]]))
+    return out
 
 
 def old_graphic_boxes(show_dir, edl, seg):
-    """cut_windows for a program take, from its recording's analysis."""
+    """cut_windows for a program take, from its recording's analysis and its covers' rendered clips."""
     rec = recording_of(edl, seg)
     if rec["kind"] != "program":
         return []
-    from verify_render import load_analysis
+    from verify_render import alpha_boxes, load_analysis
     try:
         analysis = load_analysis(show_dir, edl, rec["id"])
     except FileNotFoundError:
         return []
+
+    def cover_boxes(o):
+        path = overlay_file(show_dir, o, edl)
+        if not os.path.exists(path):
+            return None
+        boxes, clip_rate, _ = alpha_boxes(path)
+        return boxes, clip_rate
     overlays = [o for o in edl.get("overlays", []) if recording_of(edl, o)["id"] == rec["id"]]
-    return cut_windows(analysis.get("baked_overlays", []), overlays, seg, show_dir)
+    return cut_windows(analysis.get("baked_overlays", []), overlays, seg, show_dir, cover_boxes,
+                       fps_value(edl["fps"]))
 
 
 def measure(edl, seg, theme, pkg, tmp):
@@ -255,6 +308,12 @@ def render_chunk(job):
                                  np.full((h, w, 1), 255, np.float32)], 2)
     enc = subprocess.Popen(encode_args(job["rate"], job["out"]), stdin=subprocess.PIPE)
     pending, areas = [], []
+    cleans = {}
+
+    def clean_frame(ref):
+        if ref not in cleans:
+            cleans[ref] = (read_frame(path, ref, fps), next(vision_mattes(path, ref, 1, job["keep"])))
+        return cleans[ref]
 
     def mattes():
         for vis in vision_mattes(path, lo, total, job["keep"]):
@@ -281,6 +340,13 @@ def render_chunk(job):
             if tv is not None:                                      # past the card's end it holds its last frame
                 ca = tv[..., 3:] / 255
                 comp[y:y + h, x:x + w] = np.clip(tv[..., :3] * ca + out_set[y:y + h, x:x + w] * (1 - ca), 0, 255)
+        olds = [b for a0, a1, b in job["boxes"] if a0 <= t <= a1]
+        ref = next((r for a0, a1, r in job["runs"] if a0 <= t <= a1), None)
+        if olds and ref is not None:                                 # the old graphic's area from a clean frame
+            rf, rv = clean_frame(ref)
+            f = np.clip(patch(f, rf, olds), 0, 255).astype(np.uint8)
+            vis = patch(vis, rv, olds)
+            olds = []
         a_full, area = None, 0
         box = roi(vis)
         if box is not None:
@@ -289,9 +355,7 @@ def render_chunk(job):
             crop = (slice(y0, y1), slice(x0, x1))
             a = alpha_for(f[crop], vis[crop], plate[crop] if known else None, cam, job["chin"], origin=(y0, x0),
                           tex=tex[crop] if known else None)
-            olds = [(bx0 - x0, by0 - y0, bx1 - x0, by1 - y0)
-                    for a0, a1, (bx0, by0, bx1, by1) in job["boxes"] if a0 <= t <= a1]
-            a, area = cut_and_measure(a, olds)
+            a, area = cut_and_measure(a, [(bx0 - x0, by0 - y0, bx1 - x0, by1 - y0) for bx0, by0, bx1, by1 in olds])
             fg = (unmix(f[crop], a, behind[crop]) if known else f[crop].astype(np.float32)) * a[..., None]
             oy0, oy1 = max(0, int(s * y0 + ty) - 2), min(H, int(np.ceil(s * y1 + ty)) + 2)
             ox0, ox1 = max(0, int(s * x0 + tx) - 2), min(W, int(np.ceil(s * x1 + tx)) + 2)
@@ -312,7 +376,8 @@ def render_chunk(job):
             stem = job["stills"]
             cv2.imwrite(stem + "-before.jpg", cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
             cv2.imwrite(stem + "-after.jpg", cv2.cvtColor(comp, cv2.COLOR_RGB2BGR))
-            cv2.imwrite(stem + "-alpha.jpg", ((a_full if a_full is not None else np.zeros((H, W))) * 255).astype(np.uint8))
+            alpha = a_full if a_full is not None else np.zeros((H, W), np.float32)
+            cv2.imwrite(stem + "-alpha.jpg", (alpha * 255).astype(np.uint8))
     enc.stdin.close()
     enc.wait()
     for p in (raw, card):
@@ -335,13 +400,14 @@ def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
     out = recomposite_file(show_dir, seg)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     boxes = [(a + offset, b + offset, box) for a, b, box in old_graphic_boxes(show_dir, edl, seg)]
+    runs = patch_runs(boxes, start, start + n)
     jobs = []
     for i, (first, count) in enumerate(chunks(n, workers)):
         jobs.append({"path": path, "fps": fps_value(edl["fps"]), "rate": edl["fps"], "first": start + first,
                      "count": count, "cam": cam, "keep": 2 if cam == "M" else 1, "recorded": entry["recorded_theme"],
                      "theme": theme, "pkg": pkg, "s": entry["s"], "tx": entry["tx"], "ty": entry["ty"],
                      "chin": entry["chin"], "desk_lip": geometry(cam, theme)["desk_lip"], "card": card,
-                     "card_first": first, "standby": theme_file("standby", edl, pkg), "boxes": boxes,
+                     "card_first": first, "standby": theme_file("standby", edl, pkg), "boxes": boxes, "runs": runs,
                      "still": start + n // 2, "stills": os.path.join(os.path.dirname(out), seg["id"]),
                      "out": os.path.join(tmp, f"{seg['id']}-{i:03d}.mp4")})
     areas = [a for part in pool.map(render_chunk, jobs) for a in part]
@@ -417,7 +483,8 @@ def main(argv):
                     if action == "fallback":
                         e["status"] = "fallback"
                         os.remove(recomposite_file(show_dir, seg))
-                print(f"{e['id']} [{e['cam']}, filmed on {'an unknown' if e['recorded_theme'] is None else e['recorded_theme'] or 'regular'} set]: scale {e['s']:.3f}, "
+                filmed = "an unknown" if e["recorded_theme"] is None else e["recorded_theme"] or "regular"
+                print(f"{e['id']} [{e['cam']}, filmed on {filmed} set]: scale {e['s']:.3f}, "
                       f"offset ({e['tx']:.0f}, {e['ty']:.0f}) -> {e['status']}{' (flagged)' if e['flag'] else ''}",
                       flush=True)
                 if plan_flag is None and abandoned is None and over_budget(render_s, done, total):

@@ -119,3 +119,29 @@ def test_only_old_graphics_under_a_fresh_cover_are_cut():
 def test_a_take_on_a_set_the_package_doesnt_have_fails():
     ok, reason = recomposite.take_ok(found=6, samples=6, areas=[1000] * 100, wanted=1.0, known_set=False)
     assert not ok and "set the package doesn't have" in reason
+
+
+def test_cuts_follow_the_fresh_cover_frame_by_frame():
+    """A 29.97 cover over a 59.94 show: each cover frame lasts two show frames, and while it animates in, only what
+    it has drawn so far is cut from the anchor."""
+    boxes = [None, (0, 0, 10, 10), (0, 0, 20, 20), (0, 0, 30, 30)]
+    window = {"first": 99, "last": 106}
+    got = recomposite.per_frame_cuts(window, at=98, boxes=boxes, clip_rate=30000 / 1001, show_rate=60000 / 1001)
+    assert got == [(100, 100, (0, 0, 10, 10)), (101, 101, (0, 0, 10, 10)), (102, 102, (0, 0, 20, 20)),
+                   (103, 103, (0, 0, 20, 20)), (104, 104, (0, 0, 30, 30)), (105, 105, (0, 0, 30, 30))]
+
+
+def test_old_graphic_frames_borrow_the_nearest_clean_frame():
+    cuts = [(t, t, (0, 0, 10, 10)) for t in range(120, 130)] + [(t, t, (5, 5, 20, 20)) for t in range(190, 200)]
+    got = recomposite.patch_runs(cuts, take_in=100, take_out=200)
+    assert got == [(120, 129, 119), (190, 199, 189)]              # the frame just before each, the nearest clean one
+
+
+def test_a_graphic_on_the_takes_first_frames_borrows_the_frame_after_it():
+    cuts = [(t, t, (0, 0, 10, 10)) for t in range(100, 105)]
+    assert recomposite.patch_runs(cuts, take_in=100, take_out=200) == [(100, 104, 105)]
+
+
+def test_a_graphic_over_the_whole_take_has_nothing_to_borrow():
+    cuts = [(t, t, (0, 0, 10, 10)) for t in range(100, 200)]
+    assert recomposite.patch_runs(cuts, take_in=100, take_out=200) == [(100, 199, None)]
