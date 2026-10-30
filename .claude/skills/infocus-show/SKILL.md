@@ -198,8 +198,8 @@ A re-composited show cuts the anchors out of every take and seats them properly 
 
   A theme never turns it on by itself: a themed show filmed on the regular set keeps its recorded picture unless one of these asks. When it is on, the takes go onto the theme's sets.
 - **Set** `"recomposite": true` at the top of `edl.json`, and record the trigger as `other`.
-- **Missing sets:** if `recomposite.py` stops because the show's theme has no Left, Middle or Right set on this Mac, build the show without re-compositing (leave `"recomposite"` out), and flag an `other` decision naming the theme's missing sets.
-- **Only recordings with the set baked in** (today's switcher recordings). Raw green-screen camera feeds aren't supported yet: if `recomposite.py` says so, leave it off and flag an `other` decision.
+- **Missing sets:** if `recomposite.py` stops because the show's theme has no Left, Middle or Right set on this Mac, build the show without re-compositing (leave `"recomposite"` out and run `foreground.py <showDir>` for every take with a card, as in step 6), and flag an `other` decision naming the theme's missing sets.
+- **Only recordings with the set baked in** (today's switcher recordings). Raw green-screen camera feeds aren't supported yet: if `recomposite.py` says so, leave it off (run `foreground.py` as in step 6) and flag an `other` decision.
 - **No fix-up clips on re-composited takes:** `hold`, `patch` and `under` clips are cut from the old recording and would put it back over the new picture (verify rule 12 fails them). A full-screen flash is held by `recomposite.py` itself, a logo bug goes with the old set, and an old Follow card is covered by the theme's plain Follow card. Old name bars, dual thirds and Follow cards still get their fresh covers as usual.
 - **Run it in step 6**, after `render_graphics.mjs` (it puts the fresh cards on the TVs):
   ```

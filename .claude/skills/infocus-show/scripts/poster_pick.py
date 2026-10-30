@@ -79,6 +79,11 @@ def candidates(scores, k=6, min_gap=30):
     return out
 
 
+def frame_seconds(frame, rate):
+    """The middle of a render frame, in seconds: what poster.py's seek lands on that frame with."""
+    return (frame + 0.5) / rate
+
+
 def render_window(full, start, rate, clip_rate):
     """An overlay clip's (first, last) frames as render frames: clip frame k first shows on render frame
     start + ceil(k x rate / clip rate), the way build_ffmpeg conforms it."""
@@ -144,7 +149,7 @@ def main(argv):
         best = candidates(scores)
         if not best:
             raise SystemExit(f"no frame in {first}-{last} shows {ANCHORS} faces; pick the poster by eye")
-        picks = [{"seconds": round(f / rate, 3), "score": round(scores[f], 3), "faces": by_frame[f]} for f in best]
+        picks = [{"seconds": round(frame_seconds(f, rate), 4), "score": round(scores[f], 3), "faces": by_frame[f]} for f in best]
         sheet([paths[frames.index(f)] for f in best],
               [f"#{i + 1}  {p['seconds']:.2f}s  score {p['score']:.2f}" for i, p in enumerate(picks)],
               os.path.join(out_dir, "candidates.jpg"))

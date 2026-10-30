@@ -78,6 +78,8 @@ def recorded_theme(frames, masks, cam, package):
     """The installed theme whose set a take's sampled frames were keyed onto, or None when no set matches clearly (a
     set the package doesn't have, or one this Mac doesn't have installed). Each set's score is its median over the
     frames, so one odd sample (a flash) doesn't decide."""
+    if not frames:
+        return None
     scores = []
     for t in installed_themes(package):
         plate = set_image(cam, t, package)

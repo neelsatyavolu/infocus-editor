@@ -15,7 +15,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 import common  # noqa: E402
 
-pytestmark = pytest.mark.skipif(not shutil.which("swiftc"), reason="needs swiftc (macOS)")
+pytestmark = pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("swiftc"),
+                                reason="needs macOS (Apple Vision) and swiftc")
 
 
 @pytest.fixture(scope="module")
@@ -51,3 +52,10 @@ def test_anchor_matte_stops_at_the_end_of_the_file(blank):
     out = subprocess.run([common.ensure_tool("anchor_matte"), str(blank / "black.mov"), "25", "100", "1"],
                          capture_output=True, check=True).stdout
     assert len(out) == 5 * 1920 * 1080                 # 30 frames in the clip, 25..29 exist
+
+
+@pytest.mark.parametrize("tool", ["face_boxes", "face_marks"])
+def test_face_tools_stop_on_an_unreadable_image(blank, tool):
+    run = subprocess.run([common.ensure_tool(tool), str(blank / "black.png"), str(blank / "missing.png")],
+                         capture_output=True, text=True)
+    assert run.returncode != 0

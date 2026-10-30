@@ -504,6 +504,11 @@ def rule_uncovered(edl, analysis, recomposited=()):
     return failures
 
 
+def rendered_recomposited(layout, redone):
+    """The re-composited takes the render was actually built from (layout.json), not a plan written since."""
+    return {s["id"] for s in layout.get("segments", []) if s.get("recomposite")} & set(redone)
+
+
 def rule_set(show_dir, edl):
     """Re-composited shows: recomposite.py ran for the show's theme, every take is on that theme's set (a take only
     falls back to its recording when that is the same set), and no fix-up clip cut from the old recording sits over
@@ -533,8 +538,9 @@ def rule_set(show_dir, edl):
         if not is_fixup(o, show_dir):
             continue
         rid = recording_of(edl, o)["id"]
+        last = max(o["at"], (o.get("covers") or [o["at"], o["at"]])[1])     # a fix-up can run on into the next take
         for s in takes:
-            if recording_of(edl, s)["id"] == rid and s["in"] <= o["at"] < s["out"]:
+            if recording_of(edl, s)["id"] == rid and o["at"] < s["out"] and last >= s["in"]:
                 failures.append(fail(12, f"fix-up clip '{o['id']}' puts the old recording over re-composited take "
                                          f"'{s['id']}': leave it out (recomposite.py holds flashes itself)",
                                      segment=s["id"]))
@@ -673,7 +679,7 @@ def verify(show_dir, render=None, only=None):
         if want & {2, 3} and baked:
             failures += [f for f in rule_covers(view, layout, analysis, show_dir) if f["ruleNumber"] in want]
         if 4 in want:
-            failures += rule_uncovered(view, analysis, recomposited_takes(show_dir, edl))
+            failures += rule_uncovered(view, analysis, rendered_recomposited(layout, recomposited_takes(show_dir, edl)))
         if 5 in want:
             failures += rule_switcher_regions(view, analysis)
     if 6 in want and has_audio:

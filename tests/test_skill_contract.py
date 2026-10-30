@@ -103,7 +103,7 @@ def test_skill_keeps_graphics_and_anchors_as_they_are():
 
 
 def test_skill_names_the_recomposite_triggers():
-    """Re-compositing is opt-in: the brief's checkbox, the producer's note or a themed show turns it on, and the
+    """Re-compositing is opt-in: the brief's checkbox or the producer's note turns it on, and the
     skill runs the scripts that do it and the check that holds it to one set."""
     text = (SKILL / "SKILL.md").read_text()
     for needle in ("brief.recomposite", "recomposite.py", "poster_pick.py", "12, one set"):

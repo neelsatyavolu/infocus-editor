@@ -112,3 +112,8 @@ def test_one_odd_frame_doesnt_decide_the_set(tmp_path):
     mask = np.zeros((common.H, common.W), bool)
     frames = [solid(REGULAR)] * 5 + [solid((15, 17, 15))]   # one sample landed on a flash
     assert virtual_set.recorded_theme(frames, [mask] * 6, "M", str(tmp_path)) == ""
+
+
+def test_no_frames_means_no_set(tmp_path):
+    install_sets(tmp_path, "", REGULAR)
+    assert virtual_set.recorded_theme([], [], "M", str(tmp_path)) is None

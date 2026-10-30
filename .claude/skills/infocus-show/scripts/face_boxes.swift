@@ -5,7 +5,11 @@ import Vision
 for path in CommandLine.arguments.dropFirst() {
     let url = URL(fileURLWithPath: path)
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { continue }
+          let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+        // Stop rather than skip: the caller pairs output lines with its images in order.
+        FileHandle.standardError.write("can't read \(path)\n".data(using: .utf8)!)
+        exit(1)
+    }
     let W = Double(img.width), H = Double(img.height)
     let req = VNDetectFaceRectanglesRequest()
     try VNImageRequestHandler(cgImage: img).perform([req])

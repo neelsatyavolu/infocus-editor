@@ -29,7 +29,7 @@ def show_dir(tmp_path, plan, theme="", overlays=()):
 
 
 def plan(theme, *takes):
-    edl = {"source": "/rec.mov", "segments": TAKES, "overlays": []}
+    edl = {"source": "/rec.mov", "segments": TAKES, "overlays": [], "theme": theme}
     sig = {s["id"]: common.take_signature("", edl, s) for s in TAKES}
     return {"theme": theme, "abandoned": None,
             "takes": [{"id": i, "status": st, "recorded_theme": rec, "source": sig[i]} for i, st, rec in takes]}
@@ -51,7 +51,8 @@ def test_same_set_fallback_passes(tmp_path):
 def test_a_plan_for_another_theme_fails_rule_12(tmp_path):
     d, edl = show_dir(tmp_path, plan("", ("open", "recomposited", ""), ("chess", "recomposited", "")),
                       theme="halloween")
-    assert [f["ruleNumber"] for f in verify_render.rule_set(d, edl)] == [12]
+    fails = verify_render.rule_set(d, edl)
+    assert {f["ruleNumber"] for f in fails} == {12} and any("run recomposite.py again" in f["detail"] for f in fails)
 
 
 def test_recomposite_on_without_a_plan_fails_rule_12(tmp_path):
@@ -122,3 +123,26 @@ def test_a_take_missing_from_the_plan_fails_rule_12(tmp_path):
     (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(plan))
     fails = verify_render.rule_set(d, edl)
     assert [f["segment"] for f in fails] == ["chess"]
+
+
+def test_a_theme_change_makes_every_take_stale(tmp_path):
+    d, edl = show_dir(tmp_path, None)
+    (tmp_path / "Recomposite").mkdir()
+    (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(signed_plan(edl, d)))
+    fails = verify_render.rule_set(d, {**edl, "theme": "halloween"})
+    assert {f["segment"] for f in fails if f.get("segment")} == {"open", "chess"}
+
+
+def test_a_fixup_running_into_a_recomposited_take_fails_rule_12(tmp_path):
+    fix = {"id": "hold", "at": 880, "covers": [880, 930], "file": str(tmp_path / "Graphics/fixes/hold_f931_51f.mov")}
+    d, edl = show_dir(tmp_path, None, overlays=[fix])
+    (tmp_path / "Recomposite").mkdir()
+    plan = signed_plan(edl, d)
+    plan["takes"][0]["status"] = "fallback"                    # the fix-up starts in a take that kept its picture
+    (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(plan))
+    assert any("hold" in f["detail"] and f.get("segment") == "chess" for f in verify_render.rule_set(d, edl))
+
+
+def test_rule_4_trusts_what_the_render_used_not_a_newer_plan():
+    layout = {"segments": [{"id": "open", "recomposite": True}, {"id": "chess"}]}
+    assert verify_render.rendered_recomposited(layout, {"open", "chess"}) == {"open"}

@@ -22,7 +22,7 @@
 
 ## Global Constraints
 
-- **Opt-in for baked-set recordings:** `brief.recomposite` (Portal checkbox), the producer's note asking for it, or a themed show. When it's off, today's output is byte-for-byte unchanged in behaviour.
+- **Opt-in for baked-set recordings:** `brief.recomposite` (Portal checkbox) or the producer's note asking for it; never a theme alone (changed at the user's request). When it's off, today's output is byte-for-byte unchanged in behaviour.
 - **Green screen is out of scope** for this build. Matte selection is a function with one branch (`"baked"`), so a `"green"` branch can be added later.
 - **Layer order:** set PNG → fresh card on the TV (L/R) → anchors → table front panel below `DESK_LIP` → package overlays.
 - **One transform per take** (scale `s`, offset `tx, ty`). Scale is clamped to [0.8, 1.25], with 60 px of headroom.
@@ -372,7 +372,7 @@
 
 **SKILL.md changes:**
 - **Inputs list:** `recomposite`: the producer ticked "Re-set the anchors on the virtual set".
-- **Step 4, a new rule:** recomposite is on when `brief.recomposite`, `brief.note` asks for it, or the show is themed. Record which one as `other`. Set `"recomposite": true` at the top of `edl.json`.
+- **Step 4, a new rule:** recomposite is on when `brief.recomposite` or `brief.note` asks for it (never a theme alone). Record which one as `other`. Set `"recomposite": true` at the top of `edl.json`.
 - **Step 6:** after `render_graphics.mjs`, when recomposite is on, run `recomposite.py <showDir>`, and `foreground.py --only <id>` only for fallback takes with a card.
   - View one `-after.jpg` per camera.
   - Copy every plan `flag` into `decisions.json` as a flagged `other`.

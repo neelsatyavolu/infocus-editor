@@ -62,3 +62,9 @@ def test_a_show_without_a_dual_third_or_a_two_shot_says_so():
     layout = {"overlays": [], "segments": [{"id": "r", "rec_in": 0, "rec_out": 600}]}
     with pytest.raises(SystemExit, match="no dual third and no two-shot"):
         poster_pick.window("/show", edl, layout)
+
+
+def test_a_candidates_seconds_land_inside_its_frame():
+    rate = 60000 / 1001
+    t = poster_pick.frame_seconds(61, rate)
+    assert 61 / rate < t < 62 / rate

@@ -196,14 +196,15 @@ def recomposited_takes(show_dir, edl):
 
 
 def take_signature(show_dir, edl, seg):
-    """What a re-composited take was made from: its frames, camera, card and the covers over it. Any change to
+    """What a re-composited take was made from: its frames, camera, card, the covers over it and the show's theme
+    (the set it went onto). Any change to
     these after recomposite.py ran means the take has to be re-composited again."""
     rid = recording_of(edl, seg)["id"]
     covers = [{k: o.get(k) for k in ("id", "at", "covers", "render", "file")} for o in edl.get("overlays", [])
               if o.get("covers") and recording_of(edl, o)["id"] == rid
               and o["covers"][0] < seg["out"] and o["covers"][1] >= seg["in"]]
     return json.loads(json.dumps({"recording": rid, "cam": seg.get("cam"), "in": seg["in"], "out": seg["out"],
-                                  "card": seg.get("card"), "covers": covers}))
+                                  "card": seg.get("card"), "covers": covers, "theme": theme_name(edl)}))
 
 
 def stale_takes(show_dir, edl):
