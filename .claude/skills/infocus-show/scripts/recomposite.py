@@ -510,8 +510,9 @@ def apply_seats(entries, by_id):
     out = []
     for e in entries:
         seat = by_id.get(e["id"], {}).get("seat")
-        out.append({**e, "s": float(seat.get("scale", 1.0)), "tx": float(seat.get("x", 0)),
-                    "ty": float(seat.get("y", 0)), "seated_by": "agent"} if seat else dict(e))
+        scale = float(seat.get("scale", 1.0)) if seat else None
+        out.append({**e, "s": scale, "tx": float(seat.get("x", 0)), "ty": float(seat.get("y", 0)),
+                    "wanted": scale, "seated_by": "agent"} if seat else dict(e))
     return out
 
 

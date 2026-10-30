@@ -154,3 +154,8 @@ def test_changing_a_takes_seat_makes_it_stale(tmp_path):
     (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(signed_plan(edl, d)))
     seated = {**edl, "segments": [{**TAKES[0], "seat": {"scale": 1.0, "x": 0, "y": 12}}, TAKES[1]]}
     assert [f["segment"] for f in verify_render.rule_set(d, seated)] == ["open"]
+
+
+def test_a_take_without_a_seat_keeps_its_old_signature():
+    edl = {"source": "/rec.mov", "segments": TAKES, "overlays": []}
+    assert "seat" not in common.take_signature("", edl, TAKES[0])

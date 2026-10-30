@@ -224,3 +224,9 @@ def test_the_agents_seat_replaces_the_scripts_guess():
     assert (out[0]["s"], out[0]["tx"], out[0]["ty"], out[0]["seated_by"]) == (0.95, 300.0, 80.0, "agent")
     assert (out[1]["s"], out[1]["tx"], out[1]["ty"]) == (1.0, 0.0, 0.0) and out[1].get("seated_by") != "agent"
     assert entries[0]["tx"] == 295.0                             # inputs untouched
+
+
+def test_an_agent_seat_is_judged_by_its_own_scale():
+    e = recomposite.apply_seats([{"id": "l", "s": 1.4, "tx": 0.0, "ty": 0.0, "wanted": 1.4}],
+                                {"l": {"id": "l", "seat": {"scale": 1.0, "x": 0, "y": 0}}})[0]
+    assert e["wanted"] == 1.0

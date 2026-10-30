@@ -262,3 +262,9 @@ def test_the_desk_line_ignores_raised_elbows_and_arms_on_the_desk():
     cols, line = seat.desk_line(a, np.arange(600, 1260))
     assert abs(float(line[cols == 600][0]) - 979) <= 3 and abs(float(line[cols == 1190][0]) - 941) <= 3
     assert not ((cols >= 1200) & (cols < 1260)).any() and not ((cols >= 800) & (cols < 950)).any()
+
+
+def test_a_stray_scrap_at_the_edge_is_not_a_cut():
+    a = seated(300, 980, 1100, 1650)
+    a[700:900, 1915:1920] = 1                          # a neighbour's fingertip running 200 rows down the edge
+    assert seat.edges_touched([a])["right"] is False

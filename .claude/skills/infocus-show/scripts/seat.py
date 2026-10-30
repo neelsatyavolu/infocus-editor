@@ -55,24 +55,27 @@ def waists(alphas, face_x):
 
 
 def edges_touched(mattes):
-    """Which frame edges the anchors' silhouette runs off (where the camera cut them)."""
-    sil = np.max(np.stack(mattes), 0) > 0.5
+    """Which frame edges the anchors' silhouette runs off (where the camera cut them). Scraps much smaller than the
+    anchors (a neighbour's fingertip at the edge) don't count."""
+    sil = big_parts(np.max(np.stack(mattes), 0) > 0.5)
     run = 40                                                         # px of silhouette along an edge that count
     return {"left": int(sil[:, :3].any(1).sum()) > run, "right": int(sil[:, -3:].any(1).sum()) > run,
             "top": int(sil[:3].any(0).sum()) > run, "bottom": int(sil[-3:].any(0).sum()) > run}
 
 
-def body_extent(sil):
-    """(left, right) columns of the anchors themselves: the silhouette's big parts, not a scrap of a neighbour's
-    hand or a stray matte speck at a frame edge."""
+def big_parts(sil):
+    """The silhouette's big parts: the anchors, not a scrap of a neighbour's hand or a stray matte speck."""
     n, labels, stats, _ = cv2.connectedComponentsWithStats(sil.astype(np.uint8), connectivity=8)
-    if n <= 1:
-        xs = np.nonzero(sil.any(0))[0]
-        return float(xs.min()), float(xs.max())
+    if n <= 2:
+        return sil
     areas = stats[1:, cv2.CC_STAT_AREA]
-    big = [i + 1 for i, a in enumerate(areas) if a >= 0.1 * areas.max()]
-    return (float(min(stats[i, cv2.CC_STAT_LEFT] for i in big)),
-            float(max(stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] - 1 for i in big)))
+    return np.isin(labels, [i + 1 for i, a in enumerate(areas) if a >= 0.1 * areas.max()])
+
+
+def body_extent(sil):
+    """(left, right) columns of the anchors themselves (big_parts)."""
+    xs = np.nonzero(big_parts(sil).any(0))[0]
+    return float(xs.min()), float(xs.max())
 
 
 def desk_line(sil, cols, tol=5.0):
