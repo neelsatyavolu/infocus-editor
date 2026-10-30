@@ -39,12 +39,12 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from analyze import SH, SW, brand_mask, classify, middle_set  # noqa: E402
 from check_render import loudness_rows  # noqa: E402
-from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, is_multicam, load_edl,  # noqa: E402
-                    overlay_file, package_dir, probe, recording_of, recordings, seek_args, segment_source, THEMES,
-                    theme_name)
+from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, is_fixup, is_multicam,  # noqa: E402
+                    load_edl, overlay_file, package_dir, probe, recomposite_on, recomposited_takes, recording_of,
+                    recordings, seek_args, segment_source, stale_takes, THEMES, theme_name)
 
 RULES = {1: "switcher_frames", 2: "cover_span", 3: "cover_shape", 4: "uncovered", 5: "intro_outro", 6: "audio",
-         7: "basics", 8: "side_set", 9: "shot_length", 10: "av_sync", 11: "recording_range"}
+         7: "basics", 8: "side_set", 9: "shot_length", 10: "av_sync", 11: "recording_range", 12: "set"}
 MIN_SHOT_S = 1.5
 SIDE_SHARE = 0.9     # rule 8: share of a take's frames that must show its side set
 SYNC_SR = 8000       # rule 10 analysis rate
@@ -480,12 +480,16 @@ def rule_covers(edl, layout, analysis, show_dir):
 
 # ---------- rules 4 and 5 ----------
 
-def rule_uncovered(edl, analysis):
+def rule_uncovered(edl, analysis, recomposited=()):
+    """Every old graphic inside a take is covered, and every side-camera take has a card. A re-composited take is on
+    the clean set, so the old graphics went with the old one."""
     failures = []
     takes = source_segments(edl)
     covers = [o["covers"] for o in edl.get("overlays", []) if o.get("covers")]
     for w in analysis.get("baked_overlays", []):
         for s in takes:
+            if s["id"] in recomposited:
+                continue
             a, b = max(w["first"], s["in"]), min(w["last"], s["out"] - 1)
             if a > b:
                 continue
@@ -497,6 +501,49 @@ def rule_uncovered(edl, analysis):
         if cam in ("L", "R") and not s.get("card"):
             failures.append(fail(4, f"take '{s['id']}' is on the {cam} set but has no fresh card, so the filmed card "
                                     "shows", segment=s["id"], frames=[s["in"], s["out"] - 1]))
+    return failures
+
+
+def rendered_recomposited(layout, redone):
+    """The re-composited takes the render was actually built from (layout.json), not a plan written since."""
+    return {s["id"] for s in layout.get("segments", []) if s.get("recomposite")} & set(redone)
+
+
+def rule_set(show_dir, edl):
+    """Re-composited shows: recomposite.py ran for the show's theme, every take is on that theme's set (a take only
+    falls back to its recording when that is the same set), and no fix-up clip cut from the old recording sits over
+    a re-composited take."""
+    if not recomposite_on(edl):
+        return []
+    path = os.path.join(show_dir, "Recomposite", "plan.json")
+    if not os.path.exists(path):
+        return [fail(12, "recomposite is on but there's no Recomposite/plan.json: run recomposite.py")]
+    with open(path) as f:
+        plan = json.load(f)
+    theme = theme_name(edl)
+    if plan.get("abandoned"):
+        return []
+    failures = []
+    if plan.get("theme", "") != theme:
+        failures.append(fail(12, f"the takes were re-composited onto the {plan.get('theme') or 'regular'} set but the "
+                                 f"show is on the {theme or 'regular'} set: run recomposite.py again"))
+    for t in plan.get("takes", []):
+        if t.get("status") == "fallback" and t.get("recorded_theme", "") != theme:
+            failures.append(fail(12, f"take '{t['id']}' is on the {t.get('recorded_theme') or 'regular'} set but the "
+                                     f"show is on the {theme or 'regular'} set", segment=t["id"]))
+    failures += [fail(12, why, segment=sid) for sid, why in stale_takes(show_dir, edl)]
+    redone = recomposited_takes(show_dir, edl)
+    takes = [s for s in source_segments(edl) if s["id"] in redone]
+    for o in edl.get("overlays", []):
+        if not is_fixup(o, show_dir):
+            continue
+        rid = recording_of(edl, o)["id"]
+        last = max(o["at"], (o.get("covers") or [o["at"], o["at"]])[1])     # a fix-up can run on into the next take
+        for s in takes:
+            if recording_of(edl, s)["id"] == rid and o["at"] < s["out"] and last >= s["in"]:
+                failures.append(fail(12, f"fix-up clip '{o['id']}' puts the old recording over re-composited take "
+                                         f"'{s['id']}': leave it out (recomposite.py holds flashes itself)",
+                                     segment=s["id"]))
     return failures
 
 
@@ -632,7 +679,7 @@ def verify(show_dir, render=None, only=None):
         if want & {2, 3} and baked:
             failures += [f for f in rule_covers(view, layout, analysis, show_dir) if f["ruleNumber"] in want]
         if 4 in want:
-            failures += rule_uncovered(view, analysis)
+            failures += rule_uncovered(view, analysis, rendered_recomposited(layout, recomposited_takes(show_dir, edl)))
         if 5 in want:
             failures += rule_switcher_regions(view, analysis)
     if 6 in want and has_audio:
@@ -647,6 +694,8 @@ def verify(show_dir, render=None, only=None):
         failures += sync_fails
     if 11 in want:
         failures += rule_recording_range(edl)
+    if 12 in want:
+        failures += rule_set(show_dir, edl)
     failures.sort(key=lambda f: f["ruleNumber"])
     return {"pass": not failures, "render": render, "failures": failures, "loudness": rows, "notes": notes}
 

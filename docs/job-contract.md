@@ -45,6 +45,7 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
   "roster": ["…"],                 // the class's full names: name bars, and who's on air
   "packages": [{ "title": "…", "localPath": "<job_dir>/packages/01-x.mp4", "toss": "…" }],
   "note": null,                    // the producer's instructions for this edit, from Start or Redo (quoted data about this edit only)
+  "recomposite": false,            // the producer ticked "Re-set the anchors on the virtual set" (SKILL.md "Re-compositing onto the set")
   "fix": null,                     // kind "fix": { "text": "…", "remember": false }
   "showDir": "<job_dir>/show",
   "output": "<job_dir>/out/InFocus Show 2026-10-21 v1.mp4",

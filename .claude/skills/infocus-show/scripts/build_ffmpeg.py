@@ -10,6 +10,8 @@ The picture is stacked the way an editor timeline would be:
       rate are conformed to the show rate (60000/1001); a 29.97 clip shows each frame twice
   V2  fresh TV cards, scaled onto the set TV screen (SCREENS in common.py), for every source segment with a "card"
   V3  anchor foregrounds from foreground.py, so shoulders and hair stay in front of the cards
+      (a take recomposite.py re-composited reads its Recomposite/ clip instead, card and anchors already in it: no
+      V2 or V3)
   V4  overlays (name bars, dual thirds, Follow card, fix-up clips), from their "at" frame (on their "recording")
       for the clip's whole length
   A1  the mastered WAVs from master_audio.py, each cut to its segment's exact picture length
@@ -33,7 +35,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (H, SCREENS, W, card_file, expand, foreground_file, fps_value, load_edl, overlay_file,  # noqa: E402
-                    probe, recording_of, seek_args, segment_source, slate_file)
+                    probe, recomposite_file, recomposited_takes, recording_of, stale_takes, seek_args, segment_source,
+                    slate_file)
 
 SR = 48000
 VIDEO_BITRATE = "30M"          # about what the old H.264 Master preset produced for a 1080p59.94 show
@@ -59,6 +62,10 @@ def plan(edl, show_dir):
     rate = Fraction(edl["fps"])
     rec = 0
     segments, cards, spans = [], [], []
+    stale = stale_takes(show_dir, edl)
+    if stale:
+        raise RuntimeError("; ".join(why for _, why in stale))
+    redone = recomposited_takes(show_dir, edl)
     for seg in edl["segments"]:
         if seg["kind"] == "file":
             path = expand(seg["path"], edl)
@@ -71,7 +78,11 @@ def plan(edl, show_dir):
         else:
             n = seg["out"] - seg["in"]
             path, offset = segment_source(edl, seg)
-            item = {"seg": seg, "path": path, "offset": offset}
+            if seg["id"] in redone:                                  # the clip starts at the take's "in"
+                path, offset = recomposite_file(show_dir, seg), -seg["in"]
+                if not os.path.exists(path):
+                    raise RuntimeError(f"take {seg['id']}: no re-composited clip at {path}; run recomposite.py")
+            item = {"seg": seg, "path": path, "offset": offset, "recomposited": seg["id"] in redone}
             spans.append((recording_of(edl, seg)["id"], seg["in"], seg["out"], rec))
             if seg.get("card"):
                 cards.append({"id": seg["id"], "rec_in": rec, "rec_out": rec + n})
@@ -93,7 +104,8 @@ def plan(edl, show_dir):
 
 def layout_json(edl, version, segments, cards, overlays, total):
     return {"timeline": f"{edl['show']} v{version}", "fps": edl["fps"],
-            "segments": [{"id": s["seg"]["id"], "kind": s["seg"]["kind"], "rec_in": s["rec_in"], "rec_out": s["rec_out"]}
+            "segments": [{"id": s["seg"]["id"], "kind": s["seg"]["kind"], "rec_in": s["rec_in"],
+                          "rec_out": s["rec_out"], **({"recomposite": True} if s.get("recomposited") else {})}
                          for s in segments],
             "cards": cards,
             "overlays": [{"id": x["o"]["id"], "rec_in": x["rec_in"], "rec_out": x["rec_out"],
@@ -132,7 +144,7 @@ def filtergraph(edl, show_dir, segments, overlays, total):
             chains.append(f"[{src}]trim=start_frame={k}:end_frame={k + n},setpts=PTS-STARTPTS,fps={rate},"
                           f"setsar=1,format=yuv444p[{out}b]")
             last = f"{out}b"
-            if seg.get("card"):
+            if seg.get("card") and not s.get("recomposited"):        # a re-composited take has its card in it
                 x, y, w, h = SCREENS[seg["cam"]]
                 card = add_input(["-i", card_file(show_dir, seg)])
                 fg = add_input(["-i", foreground_file(show_dir, seg)])
@@ -268,14 +280,14 @@ def fcpxml(edl, show_dir, segments, cards, overlays, total, version):
         start = Fraction(seg["in"] + s["offset"]) / Fraction(rate) if seg["kind"] == "source" else Fraction(0)
         start_s = f"{start.numerator}/{start.denominator}s"
         kind = "video" if seg["kind"] == "placeholder" else "asset-clip"
-        aid = asset(s["path"], True, seg["kind"] != "placeholder")
+        aid = asset(s["path"], True, seg["kind"] != "placeholder" and not s.get("recomposited"))
         children = []
         if seg["kind"] != "placeholder":
             wav = os.path.join(show_dir, "Audio", f"{seg['id']}.wav")
             if os.path.exists(wav):
                 children.append(f'<asset-clip ref="{asset(wav, False, True)}" lane="-1" offset="{start_s}" '
                                 f'start="0s" duration="{_t(n, rate)}" name="{seg["id"]} (mastered)"/>')
-        if seg.get("card"):
+        if seg.get("card") and not s.get("recomposited"):
             x, y, w, h = SCREENS[seg["cam"]]
             px = ((x + w / 2) - W / 2) / H * 100
             py = (H / 2 - (y + h / 2)) / H * 100

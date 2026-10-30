@@ -23,6 +23,14 @@
 - **Frozen or wrong feeds:** a feed that holds one picture for a long stretch (`frozen` in `multicam.md`) has no live camera there. Don't cut to it.
 - **Sync:** `verify_render.py` rule 10 compares the render's sound with each camera file's own sound. A failure means the recording's offsets are off for that camera. That's a review item, not something to fix by nudging `in`/`out`.
 
+## Re-compositing (`recomposite.py`)
+- **It needs the set the show was filmed on.** The matte compares each frame with that set's package PNG, pixel for pixel (the switcher keys onto it exactly). A recording on a set the package doesn't have (one older show used another set) can't be re-composited: its takes come back flagged.
+- **Two-shots framed tight at the bottom** can only rise about 30 px before the camera's cut would show on the table top. They sit a little low instead, with the table's front panel hiding the cut (`"tight": true`).
+- **Old plates over an anchor** (a burned-in Follow card over a head, a name bar over the hands) are filled from the nearest frame of the same take without them, frame by frame where the fresh cover is drawn, so they don't move with the anchor and leave no hole. Every old plate in a take is filled (under a fresh cover the fill follows the cover frame by frame; otherwise it's the plate's whole zone), and only the plate's own pixels (dark plate, accent colour, white text), so a hand that moved stays live. What the old plate hid was never recorded: where the moved anchor shows from under the fresh cover (a strip as tall as the take's offset), the fill is the clean frame's, so a hand gesturing across that strip can show a faint seam. A plate on screen for the whole take has no clean frame to borrow: there it's cut out, and a hole can show next to the fresh cover. Raw green-screen feeds won't have this.
+- **Full-screen flashes are held:** frames with no anchor at all show the nearest frame with one. More than 10% of a take like that fails the take.
+- **The Halloween Middle set has a pumpkin on the table's right end;** the right anchor's arm goes over it.
+- **Raw green-screen camera feeds** aren't supported yet.
+
 ## Picking takes
 - Whisper drifts on long files. `analyze.py` transcribes in 2-minute chunks, but word times still wander by ±0.5 s. Put cut points in silences from `speech_runs_s` and confirm with `sheet.py`.
 - Repeated identical lines ("Who's on teleprompter?" ×50, "VIKINGS" ×10) are hallucinations over silence, not speech.
@@ -57,5 +65,5 @@
 - Name plates are square. Use Soft White `#ECEFEA`, never pure white.
 - The TVs idle on `09 TV Standby`, never on the blue key. Announcements start and end on that exact frame.
 - The Follow card sits top left. The outro uses the original music.
-- Package graphics go on at their own size, position and timing, always, even over the anchors (the Follow card covering a head or shoulder is fine). A graphic is never changed, and the anchors are never reframed or recomposited, to get past a check; the studio check ignores the edit's own overlays.
+- Package graphics go on at their own size, position and timing, always, even over the anchors (the Follow card covering a head or shoulder is fine). A graphic is never changed, and the anchors are never reframed or recomposited, to get past a check; the studio check ignores the edit's own overlays. Re-compositing is a choice the producer makes up front (the checkbox or the note, never a theme alone), done only by `recomposite.py`.
 - Rule #1 from `_Working Files/NOTES.md`: change the *source* (`edl.json`, `graphics.html`), then re-render. Never hand-edit a render.

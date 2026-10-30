@@ -98,7 +98,15 @@ def test_skill_keeps_graphics_and_anchors_as_they_are():
     text = (SKILL / "SKILL.md").read_text()
     for needle in ("Overlapping the anchors is fine", "The anchors stay as recorded", "Never work around a check",
                    "reframe, rescale or recomposite the anchors", "resize, recolor, re-time, move or swap a package graphic",
-                   "change how `build_ffmpeg.py` encodes"):
+                   "change how `build_ffmpeg.py` encodes", "only `recomposite.py` moves them"):
+        assert needle in text, needle
+
+
+def test_skill_names_the_recomposite_triggers():
+    """Re-compositing is opt-in: the brief's checkbox or the producer's note turns it on, and the
+    skill runs the scripts that do it and the check that holds it to one set."""
+    text = (SKILL / "SKILL.md").read_text()
+    for needle in ("brief.recomposite", "recomposite.py", "poster_pick.py", "12, one set"):
         assert needle in text, needle
 
 
@@ -116,3 +124,11 @@ def test_tracked_skill_files_hold_no_personal_paths():
         if path.is_file() and path.suffix in {".md", ".py", ".mjs", ".json", ".swift"}:
             text = path.read_text()
             assert "/Users/" not in text and "~/Downloads" not in text and "roster.csv" not in text, path
+
+
+def test_recompositing_stays_optional():
+    """It's fragile: only the producer's checkbox or their words turn it on, never a theme by itself."""
+    text = (SKILL / "SKILL.md").read_text()
+    assert "A theme never turns it on by itself" in text
+    assert "a themed show always goes out on its theme's sets" not in text
+    assert "A themed show is also re-composited" not in text
