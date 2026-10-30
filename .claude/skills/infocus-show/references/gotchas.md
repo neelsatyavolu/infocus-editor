@@ -26,7 +26,7 @@
 ## Re-compositing (`recomposite.py`)
 - **It needs the set the show was filmed on.** The matte compares each frame with that set's package PNG, pixel for pixel (the switcher keys onto it exactly). A recording on a set the package doesn't have (one older show used another set) can't be re-composited: its takes come back flagged.
 - **Two-shots framed tight at the bottom** can only rise about 30 px before the camera's cut would show on the table top. They sit a little low instead, with the table's front panel hiding the cut (`"tight": true`).
-- **Old plates over an anchor are cut out of them** (a burned-in Follow card over a head, a name bar over the hands), but only where a fresh cover goes on top. While the fresh cover animates in and out, part of that hole can show for a few frames.
+- **Old plates over an anchor** (a burned-in Follow card over a head, a name bar over the hands) are filled from the nearest frame of the same take without them, frame by frame where the fresh cover is drawn, so they don't move with the anchor and leave no hole. Only plates a fresh cover goes over are filled. A plate on screen for the whole take has no clean frame to borrow: there it's cut out, and a hole can show next to the fresh cover.
 - **Full-screen flashes are held:** frames with no anchor at all show the nearest frame with one. More than 10% of a take like that fails the take.
 - **The Halloween Middle set has a pumpkin on the table's right end;** the right anchor's arm goes over it.
 - **Raw green-screen camera feeds** aren't supported yet.
