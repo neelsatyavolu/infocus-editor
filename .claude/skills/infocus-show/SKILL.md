@@ -192,10 +192,11 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 
 A re-composited show cuts the anchors out of every take and seats them properly on the clean virtual set of the show's theme: the waist on the table's back edge, the forearms and hands resting on the table top, the table's front panel in front, every anchor the same size shot to shot, no neighbour or studio clutter in shot. It fixes a camera framed off, and it lets a show filmed on one set go out on another.
 
-- **When:** only when one of these is true; otherwise leave it off (today's picture, cards on the TV, anchor foregrounds):
+- **When:** it's optional and still fragile, so only when one of these is true; otherwise leave it off (today's picture, cards on the TV, anchor foregrounds):
   - `brief.recomposite` is true (the producer ticked the box)
   - `brief.note` or a house rule asks for it ("re-seat the anchors", "put them on the set properly")
-  - the show is themed (see "Seasonal themes"): a themed show always goes out on its theme's sets
+
+  A theme never turns it on by itself: a themed show filmed on the regular set keeps its recorded picture unless one of these asks. When it is on, the takes go onto the theme's sets.
 - **Set** `"recomposite": true` at the top of `edl.json`, and record the trigger as `other`.
 - **Missing sets:** if `recomposite.py` stops because the show's theme has no Left, Middle or Right set on this Mac, build the show without re-compositing (leave `"recomposite"` out), and flag an `other` decision naming the theme's missing sets.
 - **Only recordings with the set baked in** (today's switcher recordings). Raw green-screen camera feeds aren't supported yet: if `recomposite.py` says so, leave it off and flag an `other` decision.
@@ -211,7 +212,7 @@ A re-composited show cuts the anchors out of every take and seats them properly 
 
 ## Seasonal themes
 
-A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look. A themed show is also re-composited onto its theme's sets (see "Re-compositing onto the set"), so the picture matches the graphics.
+A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look. When the producer asks for re-compositing (see "Re-compositing onto the set"), a themed show's takes go onto the theme's sets.
 
 - **Themes:** `halloween` and `thanksgiving`.
 - **When:**

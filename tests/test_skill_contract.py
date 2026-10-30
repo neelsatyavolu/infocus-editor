@@ -124,3 +124,11 @@ def test_tracked_skill_files_hold_no_personal_paths():
         if path.is_file() and path.suffix in {".md", ".py", ".mjs", ".json", ".swift"}:
             text = path.read_text()
             assert "/Users/" not in text and "~/Downloads" not in text and "roster.csv" not in text, path
+
+
+def test_recompositing_stays_optional():
+    """It's fragile: only the producer's checkbox or their words turn it on, never a theme by itself."""
+    text = (SKILL / "SKILL.md").read_text()
+    assert "A theme never turns it on by itself" in text
+    assert "a themed show always goes out on its theme's sets" not in text
+    assert "A themed show is also re-composited" not in text

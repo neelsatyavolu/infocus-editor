@@ -57,7 +57,7 @@ Two features for the `infocus-show` skill and the worker:
 **Opt-in** for baked-set recordings. It runs when any of these is true:
 1. **Portal checkbox:** on the Start / Redo automatic editing dialog (infocus-packages, `app/(app)/editing/`). It travels as a new brief field, e.g. `"recomposite": true` (name left to the builder). Add it to `docs/portal-api.md` and `docs/job-contract.md`. The worker copies it into `brief.json` (`editor/jobfiles.py`, beside `note`).
 2. **Producer's note:** `brief.note` asks for it ("put them on the set properly", "re-seat the anchors").
-3. **Themed show:** the show's theme has its own sets (a themed show always goes out on that theme's sets).
+3. ~~**Themed show:**~~ dropped 2026-10-29 at the user's request: it stays optional (the checkbox or the note only), and the Portal labels it experimental.
 
 **Always on** for raw green-screen feeds, which have no set otherwise.
 

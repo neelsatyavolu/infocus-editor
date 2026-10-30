@@ -65,5 +65,5 @@
 - Name plates are square. Use Soft White `#ECEFEA`, never pure white.
 - The TVs idle on `09 TV Standby`, never on the blue key. Announcements start and end on that exact frame.
 - The Follow card sits top left. The outro uses the original music.
-- Package graphics go on at their own size, position and timing, always, even over the anchors (the Follow card covering a head or shoulder is fine). A graphic is never changed, and the anchors are never reframed or recomposited, to get past a check; the studio check ignores the edit's own overlays. Re-compositing is a choice made up front (the brief, the note or a theme), done only by `recomposite.py`.
+- Package graphics go on at their own size, position and timing, always, even over the anchors (the Follow card covering a head or shoulder is fine). A graphic is never changed, and the anchors are never reframed or recomposited, to get past a check; the studio check ignores the edit's own overlays. Re-compositing is a choice the producer makes up front (the checkbox or the note, never a theme alone), done only by `recomposite.py`.
 - Rule #1 from `_Working Files/NOTES.md`: change the *source* (`edl.json`, `graphics.html`), then re-render. Never hand-edit a render.
