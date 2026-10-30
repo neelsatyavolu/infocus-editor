@@ -132,3 +132,10 @@ def test_recompositing_stays_optional():
     assert "A theme never turns it on by itself" in text
     assert "a themed show always goes out on its theme's sets" not in text
     assert "A themed show is also re-composited" not in text
+
+
+def test_the_agent_seats_every_take_itself():
+    """The script's seat is a first guess: the agent previews every take and sets its own when it's off."""
+    text = (SKILL / "SKILL.md").read_text()
+    for needle in ("--preview", '"seat"', "body's bottom on the table's back edge"):
+        assert needle in text, needle

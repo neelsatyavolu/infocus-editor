@@ -188,7 +188,8 @@ def test_elbows_are_matched_to_each_anchor_by_their_shoulders():
     left = {"ls": [480, 450, 0.8], "rs": [700, 450, 0.8], "le": [460, 850, 0.8], "re": [720, 870, 0.8]}
     right = {"ls": [1260, 450, 0.8], "rs": [1480, 450, 0.8], "le": [1240, 900, 0.8], "re": [1500, 900, 0.8]}
     got = recomposite.elbows([[left, right]] * 4, boxes, 2)
-    assert [round(y) for _, y, _ in got] == [860, 900]
+    assert [round(y) for _, y, _, _ in got] == [860, 900]
+    assert [tuple(round(v) for v in span) for _, _, _, span in got] == [(480, 700), (1260, 1480)]
 
 
 def test_without_elbows_on_most_samples_there_is_no_pose_seat():
@@ -213,3 +214,19 @@ def test_samples_without_anyone_in_them_are_dropped():
     full[300:900, 500:1400] = 1
     assert recomposite.usable([full, np.zeros_like(full), full, full]) == [0, 2, 3]
     assert recomposite.usable([np.zeros_like(full)] * 4) == [0, 1, 2, 3]   # nobody anywhere: keep them all
+
+
+def test_the_agents_seat_replaces_the_scripts_guess():
+    seg = {"id": "l", "seat": {"scale": 0.95, "x": 300, "y": 80}}
+    entries = [{"id": "l", "recording": "r1", "cam": "L", "s": 0.94, "tx": 295.0, "ty": 62.0, "found": 6},
+               {"id": "r", "recording": "r1", "cam": "R", "s": 1.0, "tx": 0.0, "ty": 0.0, "found": 6}]
+    out = recomposite.apply_seats(entries, {"l": seg, "r": {"id": "r"}})
+    assert (out[0]["s"], out[0]["tx"], out[0]["ty"], out[0]["seated_by"]) == (0.95, 300.0, 80.0, "agent")
+    assert (out[1]["s"], out[1]["tx"], out[1]["ty"]) == (1.0, 0.0, 0.0) and out[1].get("seated_by") != "agent"
+    assert entries[0]["tx"] == 295.0                             # inputs untouched
+
+
+def test_an_agent_seat_is_judged_by_its_own_scale():
+    e = recomposite.apply_seats([{"id": "l", "s": 1.4, "tx": 0.0, "ty": 0.0, "wanted": 1.4}],
+                                {"l": {"id": "l", "seat": {"scale": 1.0, "x": 0, "y": 0}}})[0]
+    assert e["wanted"] == 1.0
