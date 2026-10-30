@@ -193,3 +193,36 @@ def test_a_crop_sits_on_the_back_edge_under_the_body():
     s, tx, ty, _ = seat.fit(geom, [[[1600, 280, 100, 252]]], NO_TOUCH, [a], rest=rest)
     mid = s * 1650 + tx
     assert abs(s * 1039 + ty - (seat.edge_y(geom["desk_back"], mid) + seat.WAIST_TUCK)) <= 8
+
+
+def test_a_side_anchor_moves_off_the_tv_while_staying_in_frame():
+    geom = virtual_set.geometry("L", "")                # its TV is on the left, up to x = 55 + 1124
+    a = seated(300, 980, 1150, 1650)                   # hair and shoulders over the TV's right edge
+    s, tx, ty, _ = seat.fit(geom, [[[1300, 250, 200, 252]]], NO_TOUCH, [a])
+    x, y, w, h = geom["screen"]
+    assert s * 1150 + tx >= x + w + seat.TV_CLEAR - 1
+    assert s * 1649 + tx <= W - seat.FRAME_MARGIN + 1
+
+
+def test_frame_wins_over_clearing_the_tv():
+    geom = virtual_set.geometry("L", "")
+    a = seated(300, 980, 1000, 1900)                   # too wide to clear the TV and stay in frame
+    s, tx, ty, _ = seat.fit(geom, [[[1300, 250, 200, 252]]], NO_TOUCH, [a])
+    assert s * 1899 + tx <= W - seat.FRAME_MARGIN + 1
+
+
+def test_a_stray_scrap_at_the_frame_edge_doesnt_hold_the_anchor_back():
+    geom = virtual_set.geometry("L", "")
+    a = seated(300, 980, 1100, 1650)
+    a[900:980, 1880:1920] = 1                          # a neighbour's fingertips at the frame edge
+    s, tx, ty, _ = seat.fit(geom, [[[1250, 250, 200, 252]]], NO_TOUCH, [a])
+    x, y, w, h = geom["screen"]
+    assert s * 1100 + tx >= x + w + seat.TV_CLEAR - 1   # free to clear the TV
+
+
+def test_a_shot_cut_at_the_bottom_is_never_enlarged_even_with_a_pose():
+    geom = virtual_set.geometry("R", "")
+    a = torso(500, H, 300, 700)
+    rest = [(500.0, 900.0, 1010.0, (350.0, 650.0))]
+    s, _, _, _ = seat.fit(geom, [[[450, 380, 80, 200]]], {**NO_TOUCH, "bottom": True}, [a], rest=rest)
+    assert s <= 1.0

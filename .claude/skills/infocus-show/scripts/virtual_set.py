@@ -38,8 +38,8 @@ DESK_LIP = {"M": [(0, 1085), (160, 1073), (320, 1059), (480, 1050), (640, 1043),
                   (1280, 998), (1440, 1015), (1600, 1036), (1760, 1059), (1920, 1080)],
             "R": [(0, 1080), (160, 1054), (320, 1030), (480, 1010), (640, 993), (800, 980), (960, 970), (1120, 963),
                   (1280, 960), (1440, 960), (1600, 963), (1760, 969), (1920, 978)]}
-GEOMETRY = {"": {cam: {"seats": SEATS[cam], "desk_back": DESK_BACK[cam], "desk_lip": DESK_LIP[cam]}
-                 for cam in SET_KEY}}
+GEOMETRY = {"": {cam: {"seats": SEATS[cam], "desk_back": DESK_BACK[cam], "desk_lip": DESK_LIP[cam],
+                       "screen": SCREENS.get(cam)} for cam in SET_KEY}}
 
 
 def set_path(cam, theme, package):

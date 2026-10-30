@@ -6,12 +6,14 @@ front. A tight camera is shrunk to keep headroom, and an edge where the camera c
 view. Takes from the same camera of one recording that measured about the same share one transform, so the anchors
 don't creep between cuts.
 """
+import cv2
 import numpy as np
 
 H, W = 1080, 1920
 HEADROOM = 60                                 # px above the highest head once seated; shrink if a tight camera needs it
 WAIST_TUCK = 4                                # px of the waist set just behind the back edge
 FRAME_MARGIN = 12                             # px an anchor who was fully in frame keeps from its edges
+TV_CLEAR = 20                                 # px a side-set anchor's head and shoulders keep from the TV screen
 HAND_MARGIN = 30                              # px the wrists stay above the table's front lip, hands on the table top
 LIP_PANEL = 5                                 # px from the lip's highlight down to the front panel
 SETTLED = {"s": 0.10, "x": 30, "y": 4}       # a camera this close to seated is left alone (no needless resampling)
@@ -59,6 +61,19 @@ def edges_touched(mattes):
             "top": int(sil[:3].any(0).sum()) > run, "bottom": int(sil[-3:].any(0).sum()) > run}
 
 
+def body_extent(sil):
+    """(left, right) columns of the anchors themselves: the silhouette's big parts, not a scrap of a neighbour's
+    hand or a stray matte speck at a frame edge."""
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(sil.astype(np.uint8), connectivity=8)
+    if n <= 1:
+        xs = np.nonzero(sil.any(0))[0]
+        return float(xs.min()), float(xs.max())
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    big = [i + 1 for i, a in enumerate(areas) if a >= 0.1 * areas.max()]
+    return (float(min(stats[i, cv2.CC_STAT_LEFT] for i in big)),
+            float(max(stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH] - 1 for i in big)))
+
+
 def crop_row(sil):
     """The row the switcher's key was cropped straight across at (the body ends in a wide, flat edge above the frame
     bottom), or None when the silhouette tapers off (forearms and hands) or runs off the frame."""
@@ -96,7 +111,7 @@ def fit(geom, boxes, touch, alphas, rest=None):
     fh = float(np.median(arr[:, :, 3]))
     wanted = seat["h"] / fh
     s = float(np.clip(wanted, *SCALE_RANGE))
-    if touch["bottom"] and not rest:
+    if touch["bottom"]:
         s = min(s, 1.0)
     sil = np.max(np.stack(alphas), 0) > 0.5
     top = float(np.percentile(np.nonzero(sil.any(1))[0], 1))
@@ -108,8 +123,15 @@ def fit(geom, boxes, touch, alphas, rest=None):
         for a, b in spans:
             under |= (crop_cols >= a) & (crop_cols <= b)
         crop_cols = crop_cols[under] if under.any() else crop_cols
-    xs = np.nonzero(sil.any(0))[0]
-    left, right = float(xs.min()), float(xs.max())
+    left, right = body_extent(sil)
+    screen = geom.get("screen")
+    beside = None                                                    # the anchor's edge next to the TV, at its height
+    if screen:
+        sx, sy, sw, sh = screen
+        tv_rows = np.nonzero(sil[sy:sy + sh].any(1))[0]
+        if len(tv_rows):
+            cols = np.nonzero(sil[sy:sy + sh].any(0))[0]
+            beside = float(cols.min()) if sx + sw / 2 < W / 2 else float(cols.max())
     back, lip = geom["desk_back"], geom["desk_lip"]
 
     def place(s):
@@ -119,6 +141,12 @@ def fit(geom, boxes, touch, alphas, rest=None):
             tx = min(tx, 0.0)
         if touch["right"]:
             tx = max(tx, (W - 1) * (1 - s))
+        if beside is not None:                                       # off the TV as far as the frame allows
+            sx, sy, sw, sh = screen
+            if sx + sw / 2 < W / 2:
+                tx = max(tx, sx + sw + TV_CLEAR - s * beside)
+            else:
+                tx = min(tx, sx - TV_CLEAR - s * beside)
         if not touch["right"]:                                       # fully in frame: stay in it
             tx = min(tx, W - 1 - FRAME_MARGIN - s * right)
         if not touch["left"]:

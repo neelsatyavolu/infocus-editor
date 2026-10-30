@@ -78,7 +78,7 @@ def test_recorded_theme_picks_the_matching_set(tmp_path):
 def test_unknown_themes_geometry_falls_back_to_regular():
     assert virtual_set.geometry("M", "halloween") == virtual_set.geometry("M", "")
     g = virtual_set.geometry("R", "")
-    assert set(g) == {"seats", "desk_back", "desk_lip"} and g["seats"]["x"] == [490]
+    assert set(g) == {"seats", "desk_back", "desk_lip", "screen"} and g["seats"]["x"] == [490]
 
 
 def test_recorded_theme_is_none_when_no_set_matches(tmp_path):
