@@ -108,3 +108,40 @@ def test_patch_takes_the_box_from_the_clean_frame_with_a_soft_edge():
     assert out[40, 40, 0] == 200 and out[90, 90, 0] == 0          # inside from the clean frame, outside untouched
     assert 0 < out[40, 17, 0] < 200                                 # a soft edge, no seam
     assert frame.max() == 0                                         # input untouched
+
+
+def _body_with_hole(inside_rgb):
+    rng = np.random.default_rng(3)
+    plate = np.clip(120 + rng.normal(0, 3, (H, W, 3)), 0, 255).astype(np.uint8)
+    frame = plate.copy()
+    frame[300:900, 700:1200] = (40, 50, 120)                 # the body
+    frame[450:650, 850:1050] = inside_rgb if inside_rgb is not None else plate[450:650, 850:1050]
+    vis = np.zeros((H, W), np.float32)
+    vis[300:900, 700:1200] = 1
+    vis[450:650, 850:1050] = 0                               # Vision missed the middle
+    return frame, vis, plate
+
+
+def test_a_shirt_print_vision_missed_is_filled_back_in():
+    frame, vis, plate = _body_with_hole((220, 200, 160))     # a light print on the shirt
+    a = anchor_alpha.alpha_for(frame, vis, plate, "M", chin=200)
+    assert a[550, 950] > 0.9
+
+
+def test_a_real_gap_inside_the_body_stays_open():
+    frame, vis, plate = _body_with_hole(None)                # the set shows through (an arm's gap)
+    a = anchor_alpha.alpha_for(frame, vis, plate, "M", chin=200)
+    assert a[550, 950] < 0.1
+
+
+def test_only_the_old_graphics_own_pixels_come_from_the_clean_frame():
+    clean = np.full((200, 400, 3), 120, np.uint8)
+    clean[60:120, 40:140] = (60, 70, 150)                    # the arm where it was before
+    frame = clean.copy()
+    frame[60:120, 40:140] = 120
+    frame[60:120, 200:300] = (60, 70, 150)                   # the arm has moved
+    frame[130:190, 20:380] = (14, 16, 14)                    # the old name bar's dark plate
+    out = anchor_alpha.patch(frame, clean, [(0, 50, 400, 200)], feather=2, only_graphic=True)
+    assert tuple(out[160, 200].round()) == (120, 120, 120)   # the plate is gone
+    assert tuple(out[90, 250].round()) == (60, 70, 150)      # the live arm stays where it is now
+    assert tuple(out[90, 90].round()) == (120, 120, 120)     # and isn't copied back where it was

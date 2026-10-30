@@ -27,8 +27,8 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from anchor_alpha import (CARD_INK, alpha_for, cut_and_measure, matte_kind, patch, roi, steady,  # noqa: E402
-                          texture, unmix)
+from anchor_alpha import (CARD_INK, alpha_for, blend, cut_and_measure, matte_kind, patch_mask, roi,  # noqa: E402
+                          steady, texture, unmix)
 from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, is_fixup, load_edl,  # noqa: E402
                     overlay_file, package_dir, recomposite_file, recording_of, seek_args, segment_source,
                     theme_file, theme_name)
@@ -344,8 +344,9 @@ def render_chunk(job):
         ref = next((r for a0, a1, r in job["runs"] if a0 <= t <= a1), None)
         if olds and ref is not None:                                 # the old graphic's area from a clean frame
             rf, rv = clean_frame(ref)
-            f = np.clip(patch(f, rf, olds), 0, 255).astype(np.uint8)
-            vis = patch(vis, rv, olds)
+            m = patch_mask(f, rf, olds, only_graphic=True)
+            f = np.clip(blend(f, rf, m), 0, 255).astype(np.uint8)
+            vis = blend(vis, rv, m)
             olds = []
         a_full, area = None, 0
         box = roi(vis)

@@ -75,6 +75,10 @@ def alpha_for(frame, vis, plate, cam, chin, origin=(0, 0), tex=None):
     inner = cv2.GaussianBlur(cv2.erode((vis > 0.5).astype(np.uint8), np.ones((25, 25), np.uint8))
                              .astype(np.float32), (9, 9), 0)        # deep inside, a shirt may match the set: keep
     a = person * np.maximum(inner, differs)
+    # Vision sometimes leaves a hole the body surrounds (a shirt print on some frames): there the set decides,
+    # so a print that differs from the set comes back and a real gap between an arm and the body stays open.
+    holes = cv2.GaussianBlur(enclosed(vis > 0.5).astype(np.float32), (5, 5), 0)
+    a = np.maximum(a, holes * differs)
     up = np.clip((chin + 80 - np.arange(oy, oy + hh, dtype=np.float32)) / 80, 0, 1)[:, None]
     # Hair is see-through at its edge and can reach past Vision's: the gentle plate difference adds it back.
     near = cv2.GaussianBlur(cv2.dilate((vis > 0.25).astype(np.uint8), np.ones((13, 13), np.uint8))
@@ -94,6 +98,14 @@ def alpha_for(frame, vis, plate, cam, chin, origin=(0, 0), tex=None):
     return cv2.GaussianBlur(a, (3, 3), 0)
 
 
+def enclosed(mask):
+    """Pixels outside `mask` that it surrounds: not reachable from the image border without crossing it."""
+    outside = np.pad((~mask).astype(np.uint8), 1, constant_values=1)
+    reach = np.zeros((outside.shape[0] + 2, outside.shape[1] + 2), np.uint8)
+    cv2.floodFill(outside, reach, (0, 0), 2)
+    return outside[1:-1, 1:-1] == 1
+
+
 def cut_boxes(a, boxes, pad=BOX_PAD):
     """The alpha with nothing inside each old graphic's box (x0, y0, x1, y1), padded: a plate the switcher burned
     in over the anchor stays where it was instead of moving with them (the fresh cover goes on top)."""
@@ -103,25 +115,34 @@ def cut_boxes(a, boxes, pad=BOX_PAD):
     return out
 
 
-def patch(frame, clean, boxes, feather=8):
-    """`frame` with each box (x0, y0, x1, y1) taken from `clean`, a frame of the same take without the old graphic,
-    blended over `feather` px just outside the box so there's no seam. Works on images or mattes."""
-    out = frame.astype(np.float32).copy()
-    h, w = out.shape[:2]
+def patch_mask(frame, clean, boxes, feather=8, only_graphic=False):
+    """Where (0..1) `frame` should take `clean`, a frame of the same take without the old graphic: each box
+    (x0, y0, x1, y1), feathered just outside so there's no seam. With only_graphic, just the pixels in the boxes that
+    changed from the clean frame and look like a package graphic (dark plate, accent colour, white text), grown a
+    little: an arm or hand that moved since the clean frame stays live."""
+    h, w = frame.shape[:2]
+    m = np.zeros((h, w), np.uint8)
     for x0, y0, x1, y1 in boxes:
-        g = 2 * feather
-        ry0, ry1, rx0, rx1 = max(0, y0 - g), min(h, y1 + g), max(0, x0 - g), min(w, x1 + g)
-        if ry0 >= ry1 or rx0 >= rx1:
-            continue
-        m = np.zeros((ry1 - ry0, rx1 - rx0), np.float32)
-        m[max(0, y0 - feather - ry0):max(0, y1 + feather - ry0),
-          max(0, x0 - feather - rx0):max(0, x1 + feather - rx0)] = 1
-        m = cv2.blur(m, (2 * feather + 1, 2 * feather + 1))
-        if out.ndim == 3:
-            m = m[..., None]
-        region = (slice(ry0, ry1), slice(rx0, rx1))
-        out[region] = out[region] * (1 - m) + clean[region].astype(np.float32) * m
-    return out
+        m[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = 1
+    if only_graphic:
+        from analyze import brand_mask
+        changed = np.abs(frame.astype(np.int16) - clean.astype(np.int16)).max(2) > 40
+        looks = (frame.max(2) < 45) | brand_mask(frame) | (frame.min(2) > 200)
+        m = m & (changed & looks).astype(np.uint8)
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))       # the text inside the plate
+    m = cv2.dilate(m, np.ones((2 * feather + 1, 2 * feather + 1), np.uint8))
+    return cv2.blur(m.astype(np.float32), (2 * feather + 1, 2 * feather + 1))
+
+
+def blend(a, b, m):
+    """a where m is 0, b where it is 1 (images or mattes)."""
+    m = m[..., None] if a.ndim == 3 else m
+    return a.astype(np.float32) * (1 - m) + b.astype(np.float32) * m
+
+
+def patch(frame, clean, boxes, feather=8, only_graphic=False):
+    """`frame` with the old graphic's boxes taken from `clean` (see patch_mask)."""
+    return blend(frame, clean, patch_mask(frame, clean, boxes, feather, only_graphic))
 
 
 def cut_and_measure(a, boxes):
