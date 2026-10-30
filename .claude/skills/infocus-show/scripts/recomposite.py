@@ -31,8 +31,9 @@ from anchor_alpha import (CARD_INK, alpha_for, blend, cut_and_measure, matte_kin
                           steady, texture, unmix)
 from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, is_fixup, load_edl,  # noqa: E402
                     overlay_file, package_dir, recomposite_file, recording_of, seek_args, segment_source,
-                    theme_file, theme_name)
-from seat import LIP_PANEL, SCALE_RANGE, edge_y, edges_touched, fit, share_transforms  # noqa: E402
+                    take_signature, theme_file, theme_name)
+from seat import (LIP_PANEL, SCALE_RANGE, SHARE_PX, SHARE_SCALE, edge_y, edges_touched, fit,  # noqa: E402
+                  settle, share_transforms)
 from virtual_set import SET_KEY, geometry, recorded_theme, set_image  # noqa: E402
 
 SAMPLES = 6
@@ -123,8 +124,8 @@ def encode_args(rate, out):
 
 
 def over_budget(elapsed_s, frames_done, frames_total, budget_s=BUDGET_S):
-    """Whether the pass, at the speed so far, would run past its budget."""
-    return frames_done > 0 and elapsed_s / frames_done * frames_total > budget_s
+    """Whether the pass, at the speed so far, would run past its budget (never once everything is rendered)."""
+    return 0 < frames_done < frames_total and elapsed_s / frames_done * frames_total > budget_s
 
 
 def reader_args(path, first, count, fps, pix_fmt, vf=""):
@@ -196,26 +197,31 @@ def patch_runs(cuts, take_in, take_out):
     return out
 
 
+def overlaps(a, b):
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
 def cut_windows(baked, overlays, seg, show_dir, cover_boxes=None, show_rate=60000 / 1001):
-    """Old burned-in graphics inside a take that a fresh package graphic covers: [(first, last, box)] in recording
-    frames. Only those are cut out of the anchor, so the fresh cover hides the hole; a logo bug the switcher fired
-    over the set wall simply disappears with the old set. `cover_boxes(overlay)` -> (boxes, clip rate) gives the
-    cover's drawn area frame by frame; without it the old graphic's whole zone is cut."""
+    """Old burned-in graphics inside a take: [(first, last, box)] in recording frames, filled from a clean frame of
+    the take so they never travel with the anchor. Under a fresh cover (one on screen at the same time, drawn over
+    the same zone) the box follows the cover frame by frame: `cover_boxes(overlay)` -> (boxes, clip rate). Otherwise
+    it is the old graphic's whole zone."""
     from verify_render import ZONES
     fresh = [o for o in overlays if o.get("covers") and not is_fixup(o, show_dir)]
+    drawn = {o["id"]: cover_boxes(o) if cover_boxes else None for o in fresh}
     out = []
     for w in baked:
         if w["zone"] not in ZONES or w["first"] >= seg["out"] or w["last"] < seg["in"]:
             continue
-        cover = next((o for o in fresh if o["covers"][0] <= w["last"] and o["covers"][1] >= w["first"]), None)
-        if cover is None:
-            continue
-        drawn = cover_boxes(cover) if cover_boxes else None
-        if drawn:
-            boxes, clip_rate = drawn
-            out += per_frame_cuts(w, cover["at"], boxes, clip_rate, show_rate)
+        zone = ZONES[w["zone"]]
+        cover = next((o for o in fresh if o["covers"][0] <= w["last"] and o["covers"][1] >= w["first"]
+                      and drawn[o["id"]] and any(b and overlaps(b, zone) for b in drawn[o["id"]][0])), None)
+        if cover:
+            boxes, clip_rate = drawn[cover["id"]]
+            out += per_frame_cuts(w, cover["at"], [b if b and overlaps(b, zone) else None for b in boxes],
+                                  clip_rate, show_rate)
         else:
-            out.append((w["first"], w["last"], ZONES[w["zone"]]))
+            out.append((w["first"], w["last"], zone))
     return out
 
 
@@ -255,9 +261,8 @@ def measure(edl, seg, theme, pkg, tmp):
         pngs.append(os.path.join(tmp, f"{seg['id']}-{i}.png"))
         cv2.imwrite(pngs[-1], cv2.cvtColor(frames[-1], cv2.COLOR_RGB2BGR))
     boxes = face_boxes(pngs)
-    mid = SAMPLES // 2
-    mask = cv2.dilate((mats[mid] > 0.25).astype(np.uint8), np.ones((31, 31), np.uint8)).astype(bool)
-    recorded = recorded_theme(frames[mid], mask, cam, pkg)
+    masks = [cv2.dilate((m > 0.25).astype(np.uint8), np.ones((31, 31), np.uint8)).astype(bool) for m in mats]
+    recorded = recorded_theme(frames, masks, cam, pkg)
     plate = set_image(cam, recorded, pkg) if recorded is not None else None
     found_boxes = [r for b in boxes for r in b]
     chin = float(np.median([r[1] + r[3] for r in found_boxes])) if found_boxes else H / 2
@@ -423,6 +428,22 @@ def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
     return areas
 
 
+def adopt(entry, siblings):
+    """A take re-rendered on its own (--only) takes its camera's transform from the takes already rendered, unless
+    it measured clearly differently (the camera moved)."""
+    if not siblings:
+        return dict(entry)
+    med = {k: float(np.median([t[k] for t in siblings])) for k in ("s", "tx", "ty")}
+    close = abs(entry["s"] - med["s"]) <= SHARE_SCALE and all(abs(entry[k] - med[k]) <= SHARE_PX for k in ("tx", "ty"))
+    return {**entry, **med} if close else dict(entry)
+
+
+def plan_entry(e, show_dir, edl, seg):
+    """A take's line in plan.json, with what it was made from (stale_takes compares it before every build)."""
+    keys = ("id", "recording", "cam", "recorded_theme", "s", "tx", "ty", "status", "flag", "note", "tight")
+    return {**{k: e[k] for k in keys}, "source": take_signature(show_dir, edl, seg)}
+
+
 def flag(seg_id, reason, action):
     what = "kept its original picture" if action == "fallback" else "kept its best matte on the new set: check it"
     return f"Take '{seg_id}' couldn't be re-composited cleanly ({reason}); {what}."
@@ -436,6 +457,69 @@ def write_plan(show_dir, plan):
     os.replace(path + ".tmp", path)
 
 
+def check_inputs(show_dir, edl, takes, theme, pkg):
+    """Fail before anything renders: the theme's sets, every side take's card, a recording kind we can matte."""
+    for cam in SET_KEY:
+        set_image(cam, theme, pkg)
+    for seg in takes:
+        matte_kind(recording_of(edl, seg))
+        if seg.get("cam") in SCREENS and seg.get("card") and not os.path.exists(card_file(show_dir, seg)):
+            raise SystemExit(f"take {seg['id']}: no card at {card_file(show_dir, seg)}; run render_graphics.mjs first")
+
+
+def seat_takes(entries, old, only):
+    """One transform per camera: takes that measured about the same share it, a nearly seated camera is left
+    alone, and a take re-rendered on its own adopts the transform its camera's other takes were rendered with."""
+    seated = settle(share_transforms([e for e in entries if e["found"]]))
+    entries = [next((x for x in seated if x["id"] == e["id"]), e) for e in entries]
+    if only:
+        def siblings(e):
+            return [t for t in old.get("takes", []) if t["id"] != e["id"] and t["status"] == "recomposited"
+                    and (t["recording"], t["cam"]) == (e["recording"], e["cam"])]
+        entries = [adopt(e, siblings(e)) if e["found"] else e for e in entries]
+    return entries
+
+
+def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
+    """Render every take that can be re-composited; returns (plan flag, abandoned reason)."""
+    by_id = {s["id"]: s for s in takes}
+    for e in entries:
+        e["known"] = e["recorded_theme"] is not None
+        e["ok"], e["reason"] = take_ok(e["found"], SAMPLES, [], e["wanted"], e["known"])
+        e["action"] = on_failure(e["recorded_theme"], theme)
+        skip = not e["ok"] and e["action"] == "fallback"
+        e.update(status="fallback" if skip else "recomposited",
+                 flag=flag(e["id"], e["reason"], e["action"]) if skip else None)
+    todo = [e for e in entries if e["status"] == "recomposited"]
+    total = sum(by_id[e["id"]]["out"] - by_id[e["id"]]["in"] for e in todo)
+    done, render_s, plan_flag = 0, 0.0, None
+    with multiprocessing.get_context("spawn").Pool(workers) as pool:
+        for e in todo:
+            seg = by_id[e["id"]]
+            t0 = time.time()
+            areas = render_take(pool, edl, show_dir, seg, e, theme, pkg, workers, tmp)
+            render_s += time.time() - t0
+            done += seg["out"] - seg["in"]
+            ok, reason = take_ok(e["found"], SAMPLES, areas, e["wanted"], e["known"])
+            if not e["ok"] or not ok:
+                e["flag"] = flag(e["id"], e["reason"] or reason, e["action"])
+                if e["action"] == "fallback":
+                    e["status"] = "fallback"
+                    os.remove(recomposite_file(show_dir, seg))
+            filmed = "an unknown" if e["recorded_theme"] is None else e["recorded_theme"] or "regular"
+            print(f"{e['id']} [{e['cam']}, filmed on {filmed} set]: scale {e['s']:.3f}, "
+                  f"offset ({e['tx']:.0f}, {e['ty']:.0f}) -> {e['status']}{' (flagged)' if e['flag'] else ''}",
+                  flush=True)
+            if plan_flag is None and over_budget(render_s, done, total):
+                minutes = render_s / done * total / 60
+                if all(x["recorded_theme"] == theme for x in entries):
+                    return None, (f"Re-compositing would take about {minutes:.0f} min, over the {BUDGET_S // 60} min "
+                                  "budget; the show keeps its recorded picture.")
+                plan_flag = (f"Re-compositing is running slow (about {minutes:.0f} min); it carried on because the "
+                             "show goes out on a different set.")
+    return plan_flag, None
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -445,68 +529,33 @@ def main(argv):
     workers = int(argv[argv.index("--workers") + 1]) if "--workers" in argv else max(2, (os.cpu_count() or 4) // 2)
     edl = load_edl(show_dir)
     theme, pkg = theme_name(edl), package_dir(edl)
-    for cam in SET_KEY:                                              # a missing set fails before anything renders
-        set_image(cam, theme, pkg)
     takes = [s for s in edl["segments"] if s["kind"] == "source" and (only is None or s["id"] == only)]
     if not takes:
         raise SystemExit(f"no source take{' ' + only if only else ''} in edl.json")
-    for seg in takes:
-        matte_kind(recording_of(edl, seg))
+    check_inputs(show_dir, edl, takes, theme, pkg)
     started = time.time()
     plan_path = os.path.join(show_dir, "Recomposite", "plan.json")
-    old = json.load(open(plan_path)) if only and os.path.exists(plan_path) else {"takes": []}
+    old = {"takes": []}
+    if only and os.path.exists(plan_path):
+        with open(plan_path) as f:
+            old = json.load(f)
     tmp = tempfile.mkdtemp(prefix="recomposite-")
     try:
-        entries = [measure(edl, seg, theme, pkg, tmp) for seg in takes]
-        seated = share_transforms([e for e in entries if e["found"]])
-        entries = [next((x for x in seated if x["id"] == e["id"]), e) for e in entries]
-        by_id = {s["id"]: s for s in takes}
-        total = sum(s["out"] - s["in"] for s in takes)
-        done, render_s, plan_flag, abandoned = 0, 0.0, None, None
-        ctx = multiprocessing.get_context("spawn")
-        with ctx.Pool(workers) as pool:
-            for e in entries:
-                seg = by_id[e["id"]]
-                known = e["recorded_theme"] is not None
-                ok, reason = take_ok(e["found"], SAMPLES, [], e["wanted"], known)
-                action = on_failure(e["recorded_theme"], theme)
-                e.update(status="recomposited", flag=None)
-                if not ok and action == "fallback":
-                    e.update(status="fallback", flag=flag(e["id"], reason, action))
-                    continue
-                t0 = time.time()
-                areas = render_take(pool, edl, show_dir, seg, e, theme, pkg, workers, tmp)
-                render_s += time.time() - t0
-                done += seg["out"] - seg["in"]
-                ok2, reason2 = take_ok(e["found"], SAMPLES, areas, e["wanted"], known)
-                if not ok or not ok2:
-                    e["flag"] = flag(e["id"], reason or reason2, action)
-                    if action == "fallback":
-                        e["status"] = "fallback"
-                        os.remove(recomposite_file(show_dir, seg))
-                filmed = "an unknown" if e["recorded_theme"] is None else e["recorded_theme"] or "regular"
-                print(f"{e['id']} [{e['cam']}, filmed on {filmed} set]: scale {e['s']:.3f}, "
-                      f"offset ({e['tx']:.0f}, {e['ty']:.0f}) -> {e['status']}{' (flagged)' if e['flag'] else ''}",
-                      flush=True)
-                if plan_flag is None and abandoned is None and over_budget(render_s, done, total):
-                    if all(x["recorded_theme"] == theme for x in entries):
-                        abandoned = (f"Re-compositing would take about {render_s / done * total / 60:.0f} min, "
-                                     f"over the {BUDGET_S // 60} min budget; the show keeps its recorded picture.")
-                        break
-                    plan_flag = (f"Re-compositing is running slow (about {render_s / done * total / 60:.0f} min); "
-                                 "it carried on because the show goes out on a different set.")
-        if abandoned:
-            for e in entries:
-                e.update(status="fallback", flag=None)
-                clip = recomposite_file(show_dir, by_id[e["id"]])
-                if os.path.exists(clip):
-                    os.remove(clip)
+        entries = seat_takes([measure(edl, seg, theme, pkg, tmp) for seg in takes], old, only)
+        plan_flag, abandoned = render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+    by_id = {s["id"]: s for s in takes}
+    if abandoned:
+        for e in entries:
+            e.update(status="fallback", flag=None)
+            clip = recomposite_file(show_dir, by_id[e["id"]])
+            if os.path.exists(clip):
+                os.remove(clip)
     keep_old = [t for t in old.get("takes", []) if t["id"] not in by_id]
-    plan = {"theme": theme, "seconds": round(time.time() - started), "abandoned": abandoned, "flag": plan_flag,
-            "takes": keep_old + [{k: e[k] for k in ("id", "recording", "cam", "recorded_theme", "s", "tx", "ty",
-                                                     "status", "flag", "note", "tight")} for e in entries]}
+    plan = {"theme": theme, "seconds": round(time.time() - started), "abandoned": abandoned,
+            "flag": plan_flag or old.get("flag"),
+            "takes": keep_old + [plan_entry(e, show_dir, edl, by_id[e["id"]]) for e in entries]}
     write_plan(show_dir, plan)
     print(f"wrote {plan_path} in {plan['seconds']} s" + (f"; ABANDONED: {abandoned}" if abandoned else ""))
     return 0

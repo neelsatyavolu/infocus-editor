@@ -104,7 +104,7 @@ def test_frame_reader_is_exact_on_a_real_recording():
     assert dark == [True] * 29 + [False] * 3
 
 
-def test_only_old_graphics_under_a_fresh_cover_are_cut():
+def test_every_old_graphic_in_a_take_is_filled_whether_or_not_a_fix_up_covers_it():
     baked = [{"zone": "name bar (left)", "first": 100, "last": 300},
              {"zone": "Follow card", "first": 400, "last": 600},      # a logo bug the edit patched, not covered
              {"zone": "Follow card", "first": 700, "last": 900}]
@@ -113,7 +113,7 @@ def test_only_old_graphics_under_a_fresh_cover_are_cut():
                 {"id": "follow", "at": 698, "covers": [700, 900], "file": "{PACKAGE}/08 Follow InFocus/x.mov"}]
     seg = {"in": 0, "out": 1000}
     got = recomposite.cut_windows(baked, overlays, seg, "/job/show")
-    assert [(a, b) for a, b, _ in got] == [(100, 300), (700, 900)]
+    assert [(a, b) for a, b, _ in got] == [(100, 300), (400, 600), (700, 900)]
 
 
 def test_a_take_on_a_set_the_package_doesnt_have_fails():
@@ -145,3 +145,38 @@ def test_a_graphic_on_the_takes_first_frames_borrows_the_frame_after_it():
 def test_a_graphic_over_the_whole_take_has_nothing_to_borrow():
     cuts = [(t, t, (0, 0, 10, 10)) for t in range(100, 200)]
     assert recomposite.patch_runs(cuts, take_in=100, take_out=200) == [(100, 199, None)]
+
+
+def test_plan_entries_carry_what_the_take_was_made_from():
+    edl = {"source": "/rec.mov", "segments": [], "overlays": []}
+    seg = {"id": "open", "kind": "source", "cam": "M", "in": 10, "out": 90}
+    e = {"id": "open", "recording": "r1", "cam": "M", "recorded_theme": "", "s": 1.0, "tx": 0.0, "ty": 0.0,
+         "status": "recomposited", "flag": None, "note": "", "tight": False}
+    assert recomposite.plan_entry(e, "/show", edl, seg)["source"]["in"] == 10
+
+
+def test_every_old_graphic_is_filled_and_matched_to_the_cover_over_it():
+    baked = [{"zone": "name bar (left)", "first": 100, "last": 110},
+             {"zone": "Follow card", "first": 100, "last": 110},
+             {"zone": "name bar (right)", "first": 300, "last": 310}]       # nothing covers this one
+    overlays = [{"id": "follow", "at": 98, "covers": [100, 110], "file": "{PACKAGE}/f.mov"},
+                {"id": "dual", "at": 98, "covers": [100, 110], "render": {"type": "dual"}}]
+    drawn = {"follow": [(48, 40, 700, 300)] * 20, "dual": [(150, 840, 1770, 975)] * 20}
+    got = recomposite.cut_windows(baked, overlays, {"in": 0, "out": 400}, "/job/show",
+                                  cover_boxes=lambda o: (drawn[o["id"]], 60000 / 1001))
+    by_box = {box for _, _, box in got if _ == 105}
+    assert by_box == {(150, 840, 1770, 975), (48, 40, 700, 300)}            # each zone gets its own cover's box
+    assert (300, 310) in {(a, b) for a, b, _ in got}                        # the uncovered one is still filled
+
+
+def test_a_finished_pass_is_never_abandoned():
+    assert recomposite.over_budget(5000, 30000, 30000) is False
+    assert recomposite.over_budget(100, 1000, 30000) is True
+
+
+def test_a_re_rendered_take_adopts_its_cameras_transform():
+    siblings = [{"s": 0.95, "tx": 20.0, "ty": 10.0}, {"s": 0.95, "tx": 20.0, "ty": 10.0}]
+    near = recomposite.adopt({"s": 0.96, "tx": 26.0, "ty": 4.0}, siblings)
+    assert (near["s"], near["tx"], near["ty"]) == (0.95, 20.0, 10.0)
+    far = recomposite.adopt({"s": 0.80, "tx": 200.0, "ty": 4.0}, siblings)    # the camera moved: keep its own
+    assert (far["s"], far["tx"]) == (0.80, 200.0)

@@ -179,17 +179,52 @@ def is_fixup(overlay, show_dir):
     return os.path.join("Graphics", "fixes") in path or path.startswith(os.path.join(show_dir, "Graphics", "fixes"))
 
 
-def recomposited_takes(show_dir, edl):
-    """Ids of the takes whose picture is their re-composited clip (Recomposite/plan.json status "recomposited"),
-    unless recomposite is off or the pass was abandoned."""
+def recomposite_plan(show_dir, edl):
+    """Recomposite/plan.json when recomposite is on and the pass wasn't abandoned, else None."""
     path = os.path.join(show_dir, "Recomposite", "plan.json")
     if not recomposite_on(edl) or not os.path.exists(path):
-        return set()
+        return None
     with open(path) as f:
         plan = json.load(f)
-    if plan.get("abandoned"):
-        return set()
+    return None if plan.get("abandoned") else plan
+
+
+def recomposited_takes(show_dir, edl):
+    """Ids of the takes whose picture is their re-composited clip (plan.json status "recomposited")."""
+    plan = recomposite_plan(show_dir, edl) or {}
     return {t["id"] for t in plan.get("takes", []) if t.get("status") == "recomposited"}
+
+
+def take_signature(show_dir, edl, seg):
+    """What a re-composited take was made from: its frames, camera, card and the covers over it. Any change to
+    these after recomposite.py ran means the take has to be re-composited again."""
+    rid = recording_of(edl, seg)["id"]
+    covers = [{k: o.get(k) for k in ("id", "at", "covers", "render", "file")} for o in edl.get("overlays", [])
+              if o.get("covers") and recording_of(edl, o)["id"] == rid
+              and o["covers"][0] < seg["out"] and o["covers"][1] >= seg["in"]]
+    return json.loads(json.dumps({"recording": rid, "cam": seg.get("cam"), "in": seg["in"], "out": seg["out"],
+                                  "card": seg.get("card"), "covers": covers}))
+
+
+def stale_takes(show_dir, edl):
+    """[(take id, what to do)] for the source takes a re-composited show can't build from: missing from plan.json,
+    or changed since recomposite.py ran (a fix moved them, or changed their card or covers)."""
+    plan = recomposite_plan(show_dir, edl)
+    if plan is None:
+        return []
+    by_id = {t["id"]: t for t in plan.get("takes", [])}
+    out = []
+    for seg in edl["segments"]:
+        if seg.get("kind") != "source":
+            continue
+        t = by_id.get(seg["id"])
+        if t is None:
+            out.append((seg["id"], f"take '{seg['id']}' isn't in Recomposite/plan.json: run recomposite.py --only "
+                                   f"{seg['id']}"))
+        elif t.get("source") != take_signature(show_dir, edl, seg):
+            out.append((seg["id"], f"take '{seg['id']}' changed since it was re-composited (its in/out, card or "
+                                   f"covers): run recomposite.py --only {seg['id']}"))
+    return out
 
 
 def slate_file(show_dir, seg):

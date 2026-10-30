@@ -197,6 +197,7 @@ A re-composited show cuts the anchors out of every take and seats them properly 
   - `brief.note` or a house rule asks for it ("re-seat the anchors", "put them on the set properly")
   - the show is themed (see "Seasonal themes"): a themed show always goes out on its theme's sets
 - **Set** `"recomposite": true` at the top of `edl.json`, and record the trigger as `other`.
+- **Missing sets:** if `recomposite.py` stops because the show's theme has no Left, Middle or Right set on this Mac, build the show without re-compositing (leave `"recomposite"` out), and flag an `other` decision naming the theme's missing sets.
 - **Only recordings with the set baked in** (today's switcher recordings). Raw green-screen camera feeds aren't supported yet: if `recomposite.py` says so, leave it off and flag an `other` decision.
 - **No fix-up clips on re-composited takes:** `hold`, `patch` and `under` clips are cut from the old recording and would put it back over the new picture (verify rule 12 fails them). A full-screen flash is held by `recomposite.py` itself, a logo bug goes with the old set, and an old Follow card is covered by the theme's plain Follow card. Old name bars, dual thirds and Follow cards still get their fresh covers as usual.
 - **Run it in step 6**, after `render_graphics.mjs` (it puts the fresh cards on the TVs):
@@ -327,7 +328,7 @@ The worker runs `verify_render.py` again after you finish, so don't claim a pass
 A producer reviewed the previous version and typed `brief.fix.text`, for example "the Math Club card should say …" or "cut the stumble at the start of the close". The job folder and `showDir` are as you left them.
 1. Run `progress fix`. Read `edl.json`, `decisions.json`, the last `result.json` and `README.md` in `showDir` / the job folder.
 2. Apply the request by editing `edl.json`. Change nothing the producer didn't ask about. Timecodes they give are in the previous render (`layout.json` maps render frames to segments).
-3. Re-run only the steps the change affects. Then rebuild to the new `brief.output` (step 7), run steps 8 and 9, and make a new poster at `brief.poster`.
+3. Re-run only the steps the change affects. In a re-composited show, any take whose `in`/`out`, card or covers changed, and any take you added, needs `recomposite.py <showDir> --only <id>` (after `render_graphics.mjs` for a changed card); the build refuses a stale take and says which. Then rebuild to the new `brief.output` (step 7), run steps 8 and 9, and make a new poster at `brief.poster`.
 4. In `result.json`, set `reply` to one short paragraph for the producer saying what you changed (e.g. "Changed the Unity Day card's second line to …; rebuilt as v2"). If the request can't be done, explain why in `reply`, set `needsReview: true`, and still produce the render.
 5. **Remember:** if `brief.fix.remember` is true, also append one rule to `brief.houseRules`. Word it generally, so it applies to future shows (no show-specific timecodes), as the next numbered item.
 

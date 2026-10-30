@@ -79,6 +79,12 @@ def candidates(scores, k=6, min_gap=30):
     return out
 
 
+def render_window(full, start, rate, clip_rate):
+    """An overlay clip's (first, last) frames as render frames: clip frame k first shows on render frame
+    start + ceil(k x rate / clip rate), the way build_ffmpeg conforms it."""
+    return tuple(start + math.ceil(f * rate / clip_rate) for f in full)
+
+
 def window(show_dir, edl, layout):
     """(first, last) render frames to sample."""
     rate = fps_value(edl["fps"])
@@ -89,10 +95,11 @@ def window(show_dir, edl, layout):
         counts, clip_rate = drawn_pixels(overlay_file(show_dir, dual, edl))
         full = full_window(counts)
         if full:
-            start = placed[dual["id"]]["rec_in"]
-            return tuple(start + math.ceil(f * rate / clip_rate) for f in full)
+            return render_window(full, placed[dual["id"]]["rec_in"], rate, clip_rate)
     takes = {s["id"]: s for s in edl["segments"]}
-    m = next(s for s in layout["segments"] if takes.get(s["id"], {}).get("cam") == "M")
+    m = next((s for s in layout["segments"] if takes.get(s["id"], {}).get("cam") == "M"), None)
+    if m is None:
+        raise SystemExit("no dual third and no two-shot take in this show; pick the poster by eye")
     return m["rec_in"] + round(rate), min(m["rec_out"] - 1, m["rec_in"] + round(5 * rate))
 
 

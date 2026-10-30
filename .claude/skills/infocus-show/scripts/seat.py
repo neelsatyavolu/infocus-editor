@@ -12,9 +12,9 @@ H, W = 1080, 1920
 HEADROOM = 60                                 # px above the highest head once seated; shrink if a tight camera needs it
 WAIST_TUCK = 4                                # px of the waist set just behind the back edge
 LIP_PANEL = 5                                 # px from the lip's highlight down to the front panel
-TOL = {"s": 0.10, "x": 30, "y": 25}          # inside these the take is left alone (no needless resampling)
+SETTLED = {"s": 0.10, "x": 30, "y": 4}       # a camera this close to seated is left alone (no needless resampling)
 SCALE_RANGE = (0.8, 1.25)
-SHARE_PX, SHARE_SCALE = 8, 0.02               # takes this close to their camera's median share it
+SHARE_PX, SHARE_SCALE = 24, 0.04              # takes this close to their camera's median share it
 
 
 def edge_y(curve, x):
@@ -70,8 +70,7 @@ def fit(geom, boxes, touch, alphas):
         return 1.0, 0.0, 0.0, "no anchor found; left as is"
     fh = float(np.median(arr[:, :, 3]))
     wanted = seat["h"] / fh
-    s = 1.0 if abs(wanted - 1) < TOL["s"] else wanted
-    s = float(np.clip(s, *SCALE_RANGE))
+    s = float(np.clip(wanted, *SCALE_RANGE))
     sil = np.max(np.stack(alphas), 0) > 0.5
     top = float(np.percentile(np.nonzero(sil.any(1))[0], 1))
     bottom_cols = np.nonzero(sil[H - 3:].any(0))[0].astype(np.float32)
@@ -97,9 +96,17 @@ def fit(geom, boxes, touch, alphas):
         tx, ty = place(s)
     note = (f"faces h={fh:.0f} at x={[round(float(v)) for v in cx]}; waists at y={[round(w) for _, w in ws]}; "
             f"wanted scale {wanted:.3f}")
-    if s == 1.0 and abs(tx) < TOL["x"] and abs(ty) < 4:
-        return 1.0, 0.0, 0.0, note + "; already seated, left as is"
     return s, tx, ty, note + f"; touches {[k for k, v in touch.items() if v]}"
+
+
+def settle(takes):
+    """Takes whose (shared) transform is within SETTLED of none at all keep the recording's own framing. Run it
+    after share_transforms, so takes from one camera settle together. Returns new dicts."""
+    out = []
+    for t in takes:
+        near = abs(t["s"] - 1) < SETTLED["s"] and abs(t["tx"]) < SETTLED["x"] and abs(t["ty"]) < SETTLED["y"]
+        out.append({**t, "s": 1.0, "tx": 0.0, "ty": 0.0} if near else dict(t))
+    return out
 
 
 def share_transforms(takes):

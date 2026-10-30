@@ -29,8 +29,10 @@ def show_dir(tmp_path, plan, theme="", overlays=()):
 
 
 def plan(theme, *takes):
+    edl = {"source": "/rec.mov", "segments": TAKES, "overlays": []}
+    sig = {s["id"]: common.take_signature("", edl, s) for s in TAKES}
     return {"theme": theme, "abandoned": None,
-            "takes": [{"id": i, "status": st, "recorded_theme": rec} for i, st, rec in takes]}
+            "takes": [{"id": i, "status": st, "recorded_theme": rec, "source": sig[i]} for i, st, rec in takes]}
 
 
 def test_mixed_sets_fail_rule_12(tmp_path):
@@ -60,8 +62,9 @@ def test_recomposite_on_without_a_plan_fails_rule_12(tmp_path):
 
 def test_a_fixup_clip_over_a_recomposited_take_fails_rule_12(tmp_path):
     fix = {"id": "hold", "at": 950, "covers": [950, 980], "file": str(tmp_path / "Graphics/fixes/hold_f981_31f.mov")}
-    d, edl = show_dir(tmp_path, plan("", ("open", "recomposited", ""), ("chess", "recomposited", "")),
-                      overlays=[fix])
+    d, edl = show_dir(tmp_path, None, overlays=[fix])
+    (tmp_path / "Recomposite").mkdir()
+    (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(signed_plan(edl, d)))
     fails = verify_render.rule_set(d, edl)
     assert [f["ruleNumber"] for f in fails] == [12] and "hold" in fails[0]["detail"]
 
@@ -91,3 +94,31 @@ def test_recomposited_side_take_still_reads_as_its_set(tmp_path):
     Image.fromarray(mid).save(png)
     small = np.asarray(Image.fromarray(frame).resize((analyze.SW, analyze.SH), Image.BOX))
     assert analyze.classify(small, analyze.middle_set(str(tmp_path))) == "L"
+
+
+def signed_plan(edl, d, theme=""):
+    return {"theme": theme, "abandoned": None,
+            "takes": [{"id": s["id"], "status": "recomposited", "recorded_theme": theme,
+                       "source": common.take_signature(d, edl, s)} for s in edl["segments"] if s["kind"] == "source"]}
+
+
+def test_a_take_changed_since_recompositing_fails_rule_12(tmp_path):
+    d, edl = show_dir(tmp_path, None)
+    (tmp_path / "Recomposite").mkdir()
+    (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(signed_plan(edl, d)))
+    assert verify_render.rule_set(d, edl) == []
+    moved = {**edl, "segments": [{**TAKES[0], "in": 145}, TAKES[1]]}        # a fix cut a stumble from the open
+    fails = verify_render.rule_set(d, moved)
+    assert [f["ruleNumber"] for f in fails] == [12] and "open" in fails[0]["detail"] and "--only" in fails[0]["detail"]
+    retyped = {**edl, "segments": [TAKES[0], {**TAKES[1], "card": {"title": "Chess Club"}}]}
+    assert [f["segment"] for f in verify_render.rule_set(d, retyped)] == ["chess"]
+
+
+def test_a_take_missing_from_the_plan_fails_rule_12(tmp_path):
+    d, edl = show_dir(tmp_path, None)
+    (tmp_path / "Recomposite").mkdir()
+    plan = signed_plan(edl, d)
+    plan["takes"] = plan["takes"][:1]
+    (tmp_path / "Recomposite" / "plan.json").write_text(json.dumps(plan))
+    fails = verify_render.rule_set(d, edl)
+    assert [f["segment"] for f in fails] == ["chess"]

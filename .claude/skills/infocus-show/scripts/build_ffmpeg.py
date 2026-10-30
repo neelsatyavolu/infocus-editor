@@ -35,7 +35,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (H, SCREENS, W, card_file, expand, foreground_file, fps_value, load_edl, overlay_file,  # noqa: E402
-                    probe, recomposite_file, recomposited_takes, recording_of, seek_args, segment_source,
+                    probe, recomposite_file, recomposited_takes, recording_of, stale_takes, seek_args, segment_source,
                     slate_file)
 
 SR = 48000
@@ -62,6 +62,9 @@ def plan(edl, show_dir):
     rate = Fraction(edl["fps"])
     rec = 0
     segments, cards, spans = [], [], []
+    stale = stale_takes(show_dir, edl)
+    if stale:
+        raise RuntimeError("; ".join(why for _, why in stale))
     redone = recomposited_takes(show_dir, edl)
     for seg in edl["segments"]:
         if seg["kind"] == "file":
@@ -101,8 +104,9 @@ def plan(edl, show_dir):
 
 def layout_json(edl, version, segments, cards, overlays, total):
     return {"timeline": f"{edl['show']} v{version}", "fps": edl["fps"],
-            "segments": [{"id": s["seg"]["id"], "kind": s["seg"]["kind"], "rec_in": s["rec_in"], "rec_out": s["rec_out"],
-                          **({"recomposite": True} if s.get("recomposited") else {})} for s in segments],
+            "segments": [{"id": s["seg"]["id"], "kind": s["seg"]["kind"], "rec_in": s["rec_in"],
+                          "rec_out": s["rec_out"], **({"recomposite": True} if s.get("recomposited") else {})}
+                         for s in segments],
             "cards": cards,
             "overlays": [{"id": x["o"]["id"], "rec_in": x["rec_in"], "rec_out": x["rec_out"],
                           "covers": x["o"].get("covers")} for x in overlays],

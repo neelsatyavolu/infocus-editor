@@ -41,7 +41,7 @@ from analyze import SH, SW, brand_mask, classify, middle_set  # noqa: E402
 from check_render import loudness_rows  # noqa: E402
 from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, is_fixup, is_multicam,  # noqa: E402
                     load_edl, overlay_file, package_dir, probe, recomposite_on, recomposited_takes, recording_of,
-                    recordings, seek_args, segment_source, THEMES, theme_name)
+                    recordings, seek_args, segment_source, stale_takes, THEMES, theme_name)
 
 RULES = {1: "switcher_frames", 2: "cover_span", 3: "cover_shape", 4: "uncovered", 5: "intro_outro", 6: "audio",
          7: "basics", 8: "side_set", 9: "shot_length", 10: "av_sync", 11: "recording_range", 12: "set"}
@@ -526,6 +526,7 @@ def rule_set(show_dir, edl):
         if t.get("status") == "fallback" and t.get("recorded_theme", "") != theme:
             failures.append(fail(12, f"take '{t['id']}' is on the {t.get('recorded_theme') or 'regular'} set but the "
                                      f"show is on the {theme or 'regular'} set", segment=t["id"]))
+    failures += [fail(12, why, segment=sid) for sid, why in stale_takes(show_dir, edl)]
     redone = recomposited_takes(show_dir, edl)
     takes = [s for s in source_segments(edl) if s["id"] in redone]
     for o in edl.get("overlays", []):

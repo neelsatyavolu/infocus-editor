@@ -50,3 +50,15 @@ def test_candidates_are_spread_out():
 
 def test_candidates_leave_out_frames_with_a_missing_face():
     assert poster_pick.candidates({0: -math.inf, 30: 0.5}, k=6) == [30]
+
+
+def test_the_window_ends_before_the_out_animation():
+    assert poster_pick.render_window((10, 59), start=100, rate=60000 / 1001, clip_rate=30000 / 1001) == (120, 218)
+
+
+def test_a_show_without_a_dual_third_or_a_two_shot_says_so():
+    import pytest
+    edl = {"fps": "60000/1001", "segments": [{"id": "r", "kind": "source", "cam": "R"}], "overlays": []}
+    layout = {"overlays": [], "segments": [{"id": "r", "rec_in": 0, "rec_out": 600}]}
+    with pytest.raises(SystemExit, match="no dual third and no two-shot"):
+        poster_pick.window("/show", edl, layout)

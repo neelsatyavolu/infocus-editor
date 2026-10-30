@@ -72,7 +72,7 @@ def test_recorded_theme_picks_the_matching_set(tmp_path):
     mask = np.zeros((common.H, common.W), bool)
     frame[300:900, 700:1100] = (30, 30, 30)
     mask[300:900, 700:1100] = True
-    assert virtual_set.recorded_theme(frame, mask, "M", str(tmp_path)) == "halloween"
+    assert virtual_set.recorded_theme([frame], [mask], "M", str(tmp_path)) == "halloween"
 
 
 def test_unknown_themes_geometry_falls_back_to_regular():
@@ -86,7 +86,7 @@ def test_recorded_theme_is_none_when_no_set_matches(tmp_path):
     install_sets(tmp_path, "halloween", HALLOWEEN)
     frame = solid((30, 160, 60))                     # an older set the package doesn't have
     mask = np.zeros((common.H, common.W), bool)
-    assert virtual_set.recorded_theme(frame, mask, "L", str(tmp_path)) is None
+    assert virtual_set.recorded_theme([frame], [mask], "L", str(tmp_path)) is None
 
 
 def test_the_tv_screen_is_left_out_of_the_match(tmp_path):
@@ -97,4 +97,18 @@ def test_the_tv_screen_is_left_out_of_the_match(tmp_path):
     mask = np.ones((common.H, common.W), bool)       # the anchor covers everything but the TV and the table
     mask[y:y + h, x:x + w] = False
     mask[900:] = False
-    assert virtual_set.recorded_theme(frame, mask, "R", str(tmp_path)) == ""
+    assert virtual_set.recorded_theme([frame], [mask], "R", str(tmp_path)) == ""
+
+
+def test_a_set_close_to_the_regular_one_is_not_mistaken_for_it(tmp_path):
+    install_sets(tmp_path, "", REGULAR)
+    frame = solid((130, 130, 130))                   # an uninstalled seasonal set, 10 levels off the regular one
+    mask = np.zeros((common.H, common.W), bool)
+    assert virtual_set.recorded_theme([frame], [mask], "M", str(tmp_path)) is None
+
+
+def test_one_odd_frame_doesnt_decide_the_set(tmp_path):
+    install_sets(tmp_path, "", REGULAR)
+    mask = np.zeros((common.H, common.W), bool)
+    frames = [solid(REGULAR)] * 5 + [solid((15, 17, 15))]   # one sample landed on a flash
+    assert virtual_set.recorded_theme(frames, [mask] * 6, "M", str(tmp_path)) == ""

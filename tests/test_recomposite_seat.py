@@ -48,7 +48,8 @@ def test_well_seated_shot_is_left_alone():
     a = torso(300, waist + 1, seat_x - 190, seat_x + 190)    # bottom row = the back edge under this anchor
     box = [[seat_x - 50, 260, 100, seat_h]]
     s, tx, ty, note = seat.fit(geom, [box], NO_TOUCH, [a])
-    assert (s, tx, ty) == (1.0, 0.0, 0.0), note
+    (t,) = seat.settle([{"id": "a", "recording": "r1", "cam": "R", "s": s, "tx": tx, "ty": ty}])
+    assert (t["s"], t["tx"], t["ty"]) == (1.0, 0.0, 0.0), note
 
 
 def test_no_faces_leaves_the_shot_alone():
@@ -82,3 +83,21 @@ def test_other_cameras_and_recordings_are_grouped_apart():
              {"id": "b", "recording": "r1", "cam": "R", "s": 1.0, "tx": 6.0, "ty": 0.0},
              {"id": "c", "recording": "r2", "cam": "L", "s": 1.0, "tx": 4.0, "ty": 0.0}]
     assert [t["tx"] for t in seat.share_transforms(takes)] == [0.0, 6.0, 4.0]
+
+
+def test_takes_either_side_of_the_snap_share_one_size():
+    takes = [{"id": "a", "recording": "r1", "cam": "R", "s": 0.905, "tx": 10.0, "ty": 0.0},
+             {"id": "b", "recording": "r1", "cam": "R", "s": 0.895, "tx": 12.0, "ty": 0.0}]
+    out = seat.settle(seat.share_transforms(takes))
+    assert out[0]["s"] == out[1]["s"]
+
+
+def test_spread_out_takes_still_share_their_median():
+    takes = [{"id": f"t{i}", "recording": "r1", "cam": "M", "s": 1.0, "tx": tx, "ty": 0.0}
+             for i, tx in enumerate([0.0, 10.0, 20.0])]
+    assert {t["tx"] for t in seat.share_transforms(takes)} == {10.0}
+
+
+def test_settle_leaves_a_nearly_seated_camera_alone():
+    out = seat.settle([{"id": "a", "recording": "r1", "cam": "R", "s": 0.97, "tx": 12.0, "ty": -3.0}])
+    assert (out[0]["s"], out[0]["tx"], out[0]["ty"]) == (1.0, 0.0, 0.0)

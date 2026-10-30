@@ -13,8 +13,9 @@ from common import SCREENS, THEMES
 
 SET_KEY = {"L": "left", "M": "middle", "R": "right"}
 # Median difference from a set image past which a frame wasn't keyed onto it: frames on their own set measure about
-# 2 (compression), a show on an older set about 74.
-SET_MATCH = 20
+# 2 (compression), a show on an older set about 74, and the package's seasonal sets differ from each other by 10-40.
+SET_MATCH = 6
+SET_MARGIN = 3                                    # the best set must beat the next one by this much
 
 # Measured on the 2026 sets (the October shows). A theme whose table differs gets its own entry in GEOMETRY; the
 # others use the regular one.
@@ -64,17 +65,24 @@ def installed_themes(package):
     return [t for t in THEMES if all(os.path.exists(set_path(cam, t, package)) for cam in SET_KEY)]
 
 
-def recorded_theme(frame, mask, cam, package):
-    """The installed theme whose set the frame was keyed onto: the closest match where no anchor is (`mask` False),
-    or None when no set matches (a set the package doesn't have)."""
+def set_score(frame, mask, plate, cam):
+    """How far a frame is from a set image where no anchor is (`mask` False) and away from the TV screen."""
     keep = ~mask
     if cam in SCREENS:                                   # the TV shows a card, never the set's blue screen
         x, y, w, h = SCREENS[cam]
         keep[y:y + h, x:x + w] = False
-    best, theme = None, None
+    return float(np.median(np.abs(frame.astype(np.int16) - plate.astype(np.int16)).max(2)[keep]))
+
+
+def recorded_theme(frames, masks, cam, package):
+    """The installed theme whose set a take's sampled frames were keyed onto, or None when no set matches clearly (a
+    set the package doesn't have, or one this Mac doesn't have installed). Each set's score is its median over the
+    frames, so one odd sample (a flash) doesn't decide."""
+    scores = []
     for t in installed_themes(package):
-        diff = np.abs(frame.astype(np.int16) - set_image(cam, t, package).astype(np.int16)).max(2)
-        score = float(np.median(diff[keep]))
-        if best is None or score < best:
-            best, theme = score, t
-    return theme if best is not None and best <= SET_MATCH else None
+        plate = set_image(cam, t, package)
+        scores.append((float(np.median([set_score(f, m, plate, cam) for f, m in zip(frames, masks)])), t))
+    scores.sort()
+    if not scores or scores[0][0] > SET_MATCH or (len(scores) > 1 and scores[1][0] - scores[0][0] < SET_MARGIN):
+        return None
+    return scores[0][1]

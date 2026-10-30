@@ -23,17 +23,12 @@ def matte_kind(recording):
     return "baked"
 
 
-_TEX = {}
-
-
 def texture(plate):
-    """Local contrast of the set image (0-255), where compression error runs high."""
-    key = id(plate)
-    if key not in _TEX:
-        g = cv2.cvtColor(plate, cv2.COLOR_RGB2GRAY)
-        k = np.ones((5, 5), np.uint8)
-        _TEX[key] = cv2.GaussianBlur((cv2.dilate(g, k) - cv2.erode(g, k)).astype(np.float32), (0, 0), 3)
-    return _TEX[key]
+    """Local contrast of the set image (0-255), where compression error runs high. The renderer works it out once
+    per take and passes it in."""
+    g = cv2.cvtColor(plate, cv2.COLOR_RGB2GRAY)
+    k = np.ones((5, 5), np.uint8)
+    return cv2.GaussianBlur((cv2.dilate(g, k) - cv2.erode(g, k)).astype(np.float32), (0, 0), 3)
 
 
 def guided(frame, p, r=8, eps=1e-3):

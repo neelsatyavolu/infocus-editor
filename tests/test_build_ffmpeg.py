@@ -15,6 +15,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / ".claude/skills/infocus-show/scr
 sys.path.insert(0, str(SCRIPTS))
 
 import build_ffmpeg  # noqa: E402
+import common  # noqa: E402
 import fixups  # noqa: E402
 
 RATE = "60000/1001"
@@ -72,6 +73,8 @@ def rebuilt(built, tmp_path, plan, clip=True):
     edl = {**json.loads((d0 / "edl.json").read_text()), "recomposite": True}
     (d / "edl.json").write_text(json.dumps(edl))
     (d / "Recomposite").mkdir()
+    sigs = {s["id"]: common.take_signature(str(d), edl, s) for s in edl["segments"] if s["kind"] == "source"}
+    plan = {**plan, "takes": [{**t, "source": sigs[t["id"]]} for t in plan["takes"]]}
     (d / "Recomposite" / "plan.json").write_text(json.dumps(plan))
     if clip:
         ffmpeg("-f", "lavfi", "-i", f"color=c=magenta:s=1920x1080:r={RATE}", "-frames:v", "150", "-c:v", "libx264",
@@ -109,6 +112,15 @@ def test_layout_marks_recomposited_takes(built, tmp_path):
 def test_abandoned_plan_builds_as_today(built, tmp_path):
     _, frames = rebuilt(built, tmp_path, {**PLAN_A, "abandoned": "too slow"})
     assert number(frames[0]) == 100 and number(frames[149]) == 249
+
+
+def test_a_take_changed_since_recompositing_is_refused(built, tmp_path):
+    d, _ = rebuilt(built, tmp_path, PLAN_A)
+    edl = json.loads((d / "edl.json").read_text())
+    edl["segments"][0]["in"] += 30                                 # a fix moved the take
+    (d / "edl.json").write_text(json.dumps(edl))
+    with pytest.raises(RuntimeError, match="recomposite.py --only a"):
+        build_ffmpeg.build(str(d), str(d / "out2.mp4"), version=2)
 
 
 def test_missing_clip_is_a_clear_error(built, tmp_path):
