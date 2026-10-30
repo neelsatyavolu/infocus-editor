@@ -1,6 +1,6 @@
 [project]
 name = "infocus-editor"
-version = "0.2.23"
+version = "0.2.24"
 description = "Unattended editing of a student broadcast's switcher recording, driven by a Claude agent and DaVinci Resolve"
 readme = "README.md"
 license = "MIT"
