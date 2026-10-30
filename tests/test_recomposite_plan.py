@@ -3,6 +3,7 @@ picture (never mix sets), the time guard, and reading frames by index."""
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / ".claude/skills/infocus-show/scripts"
@@ -200,3 +201,15 @@ def test_samples_skip_frames_with_an_old_graphic_on_screen():
     frames = recomposite.sample_frames(1000, 1600, [(1050, 1400)], 6)
     assert len(frames) == 6 and not any(1050 <= f <= 1400 for f in frames)
     assert recomposite.sample_frames(1000, 1600, [(900, 1700)], 6) == [1050, 1150, 1250, 1350, 1450, 1550]
+
+
+def test_a_sliver_of_clean_frames_is_not_where_the_take_is_measured():
+    frames = recomposite.sample_frames(6080, 6612, [(6134, 6720)], 6)        # only 54 clean frames, a flash among them
+    assert max(frames) > 6200
+
+
+def test_samples_without_anyone_in_them_are_dropped():
+    full = np.zeros((1080, 1920), np.float32)
+    full[300:900, 500:1400] = 1
+    assert recomposite.usable([full, np.zeros_like(full), full, full]) == [0, 2, 3]
+    assert recomposite.usable([np.zeros_like(full)] * 4) == [0, 1, 2, 3]   # nobody anywhere: keep them all

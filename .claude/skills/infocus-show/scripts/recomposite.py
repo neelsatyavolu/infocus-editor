@@ -40,6 +40,7 @@ SAMPLES = 6
 BUDGET_S = 1800                               # the whole pass; past it a same-set show keeps its recorded picture
 MIN_FACE_SHARE = 0.5                          # of the sampled frames, where every anchor's face must be found
 MATTE_JUMP, MATTE_JUMP_SHARE = 0.25, 0.05     # a frame whose matte area is 25% off the take's median is a jump
+CLEAN_SHARE = 0.25                            # sample around old graphics only if this much of the take is free of them
 MAX_EMPTY_SHARE = 0.10                        # frames with no anchor at all (a switcher flash) are held, up to this
 COLOR = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"]
 
@@ -282,11 +283,17 @@ def elbows(poses, boxes, keep):
             for x, r, w in zip(face_x, rows, wrists)]
 
 
+def usable(mats):
+    """Indices of the sampled frames with someone in them (not a switcher flash); all of them if none has."""
+    keep = [i for i, m in enumerate(mats) if (m > 0.5).mean() >= 0.01]
+    return keep or list(range(len(mats)))
+
+
 def sample_frames(take_in, take_out, avoid, n):
     """n recording frames spread over a take, from the frames with no old graphic on screen (`avoid`: [(first,
-    last)]) when there are at least n of them, so a burned-in name bar's edge is never measured as the anchor's."""
+    last)]) when they're a fair share of it, so a burned-in name bar's edge is never measured as the anchor's."""
     clean = [t for t in range(take_in, take_out) if not any(a <= t <= b for a, b in avoid)]
-    pool = clean if len(clean) >= n else list(range(take_in, take_out))
+    pool = clean if len(clean) >= max(n, CLEAN_SHARE * (take_out - take_in)) else list(range(take_in, take_out))
     return [pool[int(len(pool) * (i + 0.5) / n)] for i in range(n)]
 
 
@@ -305,6 +312,9 @@ def measure(edl, seg, theme, pkg, tmp, show_dir=""):
         mats.append(next(vision_mattes(path, f, 1, keep)))
         pngs.append(os.path.join(tmp, f"{seg['id']}-{i}.png"))
         cv2.imwrite(pngs[-1], cv2.cvtColor(frames[-1], cv2.COLOR_RGB2BGR))
+    idx = usable(mats)
+    frames, mats, pngs = [frames[i] for i in idx], [mats[i] for i in idx], [pngs[i] for i in idx]
+    picks = [picks[i] for i in idx]
     boxes = face_boxes(pngs)
     masks = [cv2.dilate((m > 0.25).astype(np.uint8), np.ones((31, 31), np.uint8)).astype(bool) for m in mats]
     recorded = recorded_theme(frames, masks, cam, pkg)
@@ -320,7 +330,7 @@ def measure(edl, seg, theme, pkg, tmp, show_dir=""):
     wanted = geom["seats"]["h"] / float(np.median(heights)) if heights else None
     return {"id": seg["id"], "recording": recording_of(edl, seg)["id"], "cam": cam, "recorded_theme": recorded,
             "s": s, "tx": tx, "ty": ty, "note": note, "tight": bool(touch["bottom"]), "chin": chin,
-            "found": sum(len(b) >= keep for b in boxes), "wanted": wanted}
+            "found": sum(len(b) >= keep for b in boxes), "samples": len(idx), "wanted": wanted}
 
 
 def render_chunk(job):
@@ -540,7 +550,7 @@ def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
     by_id = {s["id"]: s for s in takes}
     for e in entries:
         e["known"] = e["recorded_theme"] is not None
-        e["ok"], e["reason"] = take_ok(e["found"], SAMPLES, [], e["wanted"], e["known"])
+        e["ok"], e["reason"] = take_ok(e["found"], e["samples"], [], e["wanted"], e["known"])
         e["action"] = on_failure(e["recorded_theme"], theme)
         skip = not e["ok"] and e["action"] == "fallback"
         e.update(status="fallback" if skip else "recomposited",
@@ -555,7 +565,7 @@ def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
             areas = render_take(pool, edl, show_dir, seg, e, theme, pkg, workers, tmp)
             render_s += time.time() - t0
             done += seg["out"] - seg["in"]
-            ok, reason = take_ok(e["found"], SAMPLES, areas, e["wanted"], e["known"])
+            ok, reason = take_ok(e["found"], e["samples"], areas, e["wanted"], e["known"])
             if not e["ok"] or not ok:
                 e["flag"] = flag(e["id"], e["reason"] or reason, e["action"])
                 if e["action"] == "fallback":
