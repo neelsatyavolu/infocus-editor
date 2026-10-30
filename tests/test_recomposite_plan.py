@@ -180,3 +180,23 @@ def test_a_re_rendered_take_adopts_its_cameras_transform():
     assert (near["s"], near["tx"], near["ty"]) == (0.95, 20.0, 10.0)
     far = recomposite.adopt({"s": 0.80, "tx": 200.0, "ty": 4.0}, siblings)    # the camera moved: keep its own
     assert (far["s"], far["tx"]) == (0.80, 200.0)
+
+
+def test_elbows_are_matched_to_each_anchor_by_their_shoulders():
+    boxes = [[[530, 300, 110, 215], [1310, 300, 110, 215]]] * 4
+    left = {"ls": [480, 450, 0.8], "rs": [700, 450, 0.8], "le": [460, 850, 0.8], "re": [720, 870, 0.8]}
+    right = {"ls": [1260, 450, 0.8], "rs": [1480, 450, 0.8], "le": [1240, 900, 0.8], "re": [1500, 900, 0.8]}
+    got = recomposite.elbows([[left, right]] * 4, boxes, 2)
+    assert [round(y) for _, y, _ in got] == [860, 900]
+
+
+def test_without_elbows_on_most_samples_there_is_no_pose_seat():
+    boxes = [[[530, 300, 110, 215]]] * 4
+    arm = {"ls": [480, 450, 0.8], "rs": [700, 450, 0.8], "le": [460, 850, 0.1]}   # elbow too unsure
+    assert recomposite.elbows([[arm]] * 4, boxes, 1) is None
+
+
+def test_samples_skip_frames_with_an_old_graphic_on_screen():
+    frames = recomposite.sample_frames(1000, 1600, [(1050, 1400)], 6)
+    assert len(frames) == 6 and not any(1050 <= f <= 1400 for f in frames)
+    assert recomposite.sample_frames(1000, 1600, [(900, 1700)], 6) == [1050, 1150, 1250, 1350, 1450, 1550]

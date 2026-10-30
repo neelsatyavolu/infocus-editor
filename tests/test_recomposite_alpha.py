@@ -145,3 +145,28 @@ def test_only_the_old_graphics_own_pixels_come_from_the_clean_frame():
     assert tuple(out[160, 200].round()) == (120, 120, 120)   # the plate is gone
     assert tuple(out[90, 250].round()) == (60, 70, 150)      # the live arm stays where it is now
     assert tuple(out[90, 90].round()) == (120, 120, 120)     # and isn't copied back where it was
+
+
+def test_below_the_table_edge_only_the_arms_stay():
+    person = {"ls": [300, 300, 0.9], "le": [260, 600, 0.9], "lw": [400, 760, 0.9],
+              "rs": [700, 300, 0.9], "re": [740, 600, 0.9], "rw": [600, 760, 0.9]}
+    arms = anchor_alpha.arm_mask([person], (1080, 1920))
+    assert arms[680, 330] > 0.9                     # on the left forearm
+    assert arms[800, 500] > 0.9                     # the hands, just past the wrists
+    assert arms[700, 500] < 0.1                     # the belly between the arms
+    a = np.ones((1080, 1920), np.float32)
+    edge = np.full(1920, 650.0, np.float32)         # the table's back edge, in this frame's rows
+    out = anchor_alpha.behind_table(a, arms, edge)
+    assert out[500, 500] == 1                       # above the edge: all of the anchor
+    assert out[700, 500] < 0.1 and out[680, 330] > 0.9
+
+
+def test_without_a_pose_nothing_is_hidden():
+    a = np.ones((1080, 1920), np.float32)
+    assert anchor_alpha.behind_table(a, None, np.full(1920, 650.0, np.float32)).min() == 1
+
+
+def test_an_anchor_whose_forearms_arent_seen_is_not_put_behind_the_table():
+    person = {"ls": [300, 300, 0.9], "rs": [700, 300, 0.9], "le": [260, 1000, 0.1], "re": [740, 1000, 0.1]}
+    arms = anchor_alpha.arm_mask([person], (1080, 1920))
+    assert arms[900, 500] > 0.9                        # their hands, wherever they are, stay

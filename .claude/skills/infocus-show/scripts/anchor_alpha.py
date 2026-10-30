@@ -101,6 +101,51 @@ def enclosed(mask):
     return outside[1:-1, 1:-1] == 1
 
 
+POSE_MIN = 0.3                                # Vision joint confidence a limb is drawn from
+
+
+def arm_mask(people, shape, origin=(0, 0)):
+    """Where the anchors' arms and hands are (0..1), from Vision body pose ({"ls", "le", "lw", "rs", "re", "rw":
+    [x, y, confidence]} per person, frame pixels): a capsule from each shoulder to elbow to wrist, and on past the
+    wrist for the hand, as thick as the person's shoulders are wide suggests. `shape` and `origin` (row, col) place
+    it in a crop of the frame."""
+    h, w = shape
+    m = np.zeros((h, w), np.uint8)
+    oy, ox = origin
+    for p in people:
+        def pt(key):
+            j = p.get(key)
+            return np.array(j[:2], np.float32) - (ox, oy) if j and j[2] >= POSE_MIN else None
+        ls, rs = pt("ls"), pt("rs")
+        width = float(np.linalg.norm(ls - rs)) if ls is not None and rs is not None else 200.0
+        t = max(30.0, 0.32 * width)
+        if not any(pt(side + "e") is not None and pt(side + "w") is not None for side in "lr"):
+            # No forearm seen (a camera framed too tight): nothing of this anchor can be told apart, so keep them.
+            xs = [j[0] for j in (ls, rs) if j is not None]
+            if xs:
+                m[:, max(0, int(min(xs) - width)):max(0, int(max(xs) + width))] = 1
+            continue
+        for side in "lr":
+            s, e, wr = pt(side + "s"), pt(side + "e"), pt(side + "w")
+            limbs = [(s, e, 1.1 * t), (e, wr, t)]
+            if e is not None and wr is not None:
+                limbs.append((wr, wr + 0.55 * (wr - e), 1.5 * t))      # the hand, past the wrist
+            for a, b, thick in limbs:
+                if a is not None and b is not None:
+                    cv2.line(m, tuple(int(v) for v in a), tuple(int(v) for v in b), 1, int(thick), cv2.LINE_AA)
+                    cv2.circle(m, tuple(int(v) for v in b), int(thick / 2), 1, -1)
+    return cv2.GaussianBlur(m.astype(np.float32), (9, 9), 0)
+
+
+def behind_table(a, arms, edge_rows):
+    """The alpha with the table top in front: below the table's back edge (`edge_rows`, one row per column of `a`)
+    only the arms and hands stay; the body goes behind the table. Without a pose (`arms` None) nothing is hidden."""
+    if arms is None:
+        return a
+    below = np.arange(a.shape[0], dtype=np.float32)[:, None] > edge_rows[None, :]
+    return np.where(below, a * arms, a)
+
+
 def cut_boxes(a, boxes, pad=BOX_PAD):
     """The alpha with nothing inside each old graphic's box (x0, y0, x1, y1), padded: a plate the switcher burned
     in over the anchor stays where it was instead of moving with them (the fresh cover goes on top)."""

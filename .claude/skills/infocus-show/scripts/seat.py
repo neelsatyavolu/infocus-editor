@@ -11,6 +11,8 @@ import numpy as np
 H, W = 1080, 1920
 HEADROOM = 60                                 # px above the highest head once seated; shrink if a tight camera needs it
 WAIST_TUCK = 4                                # px of the waist set just behind the back edge
+ELBOW_DROP = 6                                # px the elbows sit in front of the back edge, resting on the table
+HAND_MARGIN = 30                              # px the wrists stay above the table's front lip, hands on the table top
 LIP_PANEL = 5                                 # px from the lip's highlight down to the front panel
 SETTLED = {"s": 0.10, "x": 30, "y": 4}       # a camera this close to seated is left alone (no needless resampling)
 SCALE_RANGE = (0.8, 1.25)
@@ -54,9 +56,26 @@ def edges_touched(mattes):
             "top": int(sil[:3].any(0).sum()) > run, "bottom": int(sil[-3:].any(0).sum()) > run}
 
 
-def fit(geom, boxes, touch, alphas):
+def crop_row(sil):
+    """The row the switcher's key was cropped straight across at (the body ends in a wide, flat edge above the frame
+    bottom), or None when the silhouette tapers off (forearms and hands) or runs off the frame."""
+    widths = sil.sum(1)
+    if not widths.max():
+        return None
+    wide = np.nonzero(widths >= 0.5 * widths.max())[0]
+    last = int(wide[-1])
+    if last >= H - 3:
+        return None
+    return last if widths[min(H - 1, last + 6)] < 0.25 * widths.max() else None
+
+
+def fit(geom, boxes, touch, alphas, rest=None):
     """(scale, tx, ty, note) for one take. `geom` is virtual_set.geometry(cam, theme); `boxes` the face boxes
-    [x, y, w, h] found on each sampled frame; `touch` from edges_touched; `alphas` the sampled anchor alphas."""
+    [x, y, w, h] found on each sampled frame; `touch` from edges_touched; `alphas` the sampled anchor alphas;
+    `rest` each anchor's [(x, elbow row, wrist row or None)] from body pose: elbows go on the table's back edge
+    (without it, the waist read from the silhouette does), but never so low that the hands go behind the table's
+    front panel. A switcher crop never lands below the back edge, where it would show on the table. A shot the
+    camera already cut off at the bottom is never enlarged."""
     seat = geom["seats"]
     n = len(seat["x"])
     per = [sorted(b, key=lambda r: -r[2])[:n] for b in boxes if len(b) >= n]
@@ -65,15 +84,21 @@ def fit(geom, boxes, touch, alphas):
         return 1.0, 0.0, 0.0, "no faces found; left as is"
     arr = np.array(per, np.float32)                                  # samples x anchors x (x, y, w, h)
     cx = np.median(arr[:, :, 0] + arr[:, :, 2] / 2, 0)
-    ws = waists(alphas, cx)
+    ws = [(r[0], r[1]) for r in rest] if rest else waists(alphas, cx)
+    wrists = [(r[0], r[2]) for r in rest or [] if len(r) > 2 and r[2] is not None]
     if not ws:
         return 1.0, 0.0, 0.0, "no anchor found; left as is"
+    drop = ELBOW_DROP if rest else WAIST_TUCK
     fh = float(np.median(arr[:, :, 3]))
     wanted = seat["h"] / fh
     s = float(np.clip(wanted, *SCALE_RANGE))
+    if touch["bottom"] and not rest:
+        s = min(s, 1.0)
     sil = np.max(np.stack(alphas), 0) > 0.5
     top = float(np.percentile(np.nonzero(sil.any(1))[0], 1))
     bottom_cols = np.nonzero(sil[H - 3:].any(0))[0].astype(np.float32)
+    crop = crop_row(sil)
+    crop_cols = np.nonzero(sil[crop])[0].astype(np.float32) if crop is not None else None
     back, lip = geom["desk_back"], geom["desk_lip"]
 
     def place(s):
@@ -83,7 +108,11 @@ def fit(geom, boxes, touch, alphas):
             tx = min(tx, 0.0)
         if touch["right"]:
             tx = max(tx, (W - 1) * (1 - s))
-        ty = float(np.mean([edge_y(back, s * x + tx) + WAIST_TUCK - s * w for x, w in ws]))
+        ty = float(np.mean([edge_y(back, s * x + tx) + drop - s * w for x, w in ws]))
+        for x, w in wrists:                                          # the hands stay on the table top
+            ty = min(ty, float(edge_y(lip, s * x + tx)) - HAND_MARGIN - s * w)
+        if crop_cols is not None:                                    # a switcher crop stays at or above the back edge
+            ty = min(ty, float(np.min(edge_y(back, s * crop_cols + tx))) + WAIST_TUCK - s * crop)
         if len(bottom_cols):                                         # a cut at the frame bottom stays behind the panel
             ty = max(ty, float(np.max(edge_y(lip, s * bottom_cols + tx))) + LIP_PANEL - s * (H - 1))
         return tx, ty
@@ -91,10 +120,11 @@ def fit(geom, boxes, touch, alphas):
     tx, ty = place(s)
     if s * top + ty < HEADROOM:                                      # a tight camera: seated, the heads hit the top
         w = np.mean([w for _, w in ws])
-        s = float(np.clip((np.mean([edge_y(back, x) for x, _ in ws]) + WAIST_TUCK - HEADROOM) / (w - top),
+        s = float(np.clip((np.mean([edge_y(back, x) for x, _ in ws]) + drop - HEADROOM) / (w - top),
                           SCALE_RANGE[0], s))
         tx, ty = place(s)
-    note = (f"faces h={fh:.0f} at x={[round(float(v)) for v in cx]}; waists at y={[round(w) for _, w in ws]}; "
+    note = (f"faces h={fh:.0f} at x={[round(float(v)) for v in cx]}; {'elbows' if rest else 'waists'} at "
+            f"y={[round(w) for _, w in ws]}; crop {crop}; "
             f"wanted scale {wanted:.3f}")
     return s, tx, ty, note + f"; touches {[k for k, v in touch.items() if v]}"
 

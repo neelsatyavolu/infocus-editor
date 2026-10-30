@@ -27,8 +27,8 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from anchor_alpha import (CARD_INK, alpha_for, blend, cut_and_measure, matte_kind, patch_mask, roi,  # noqa: E402
-                          steady, texture, unmix)
+from anchor_alpha import (CARD_INK, POSE_MIN, alpha_for, arm_mask, behind_table, blend, cut_and_measure,  # noqa: E402
+                          matte_kind, patch_mask, roi, steady, texture, unmix)
 from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, is_fixup, load_edl,  # noqa: E402
                     overlay_file, package_dir, recomposite_file, recording_of, seek_args, segment_source,
                     take_signature, theme_file, theme_name)
@@ -247,15 +247,60 @@ def old_graphic_boxes(show_dir, edl, seg):
                        fps_value(edl["fps"]))
 
 
-def measure(edl, seg, theme, pkg, tmp):
+def arm_poses(path, first, count):
+    """Vision body pose of file frames [first, first + count): one list of people per frame (see arm_poses.swift)."""
+    out = subprocess.run([ensure_tool("arm_poses"), path, str(first), str(count)], capture_output=True, text=True,
+                         check=True).stdout
+    return [json.loads(line) for line in out.splitlines()]
+
+
+def elbows(poses, boxes, keep):
+    """Each anchor's [(x, elbow row, lowest wrist row or None)] over the sampled frames, matched to their face by
+    the shoulders; None unless every anchor's elbows were seen on at least half the samples."""
+    per = [sorted(b, key=lambda r: -r[2])[:keep] for b in boxes if len(b) >= keep]
+    if not per:
+        return None
+    face_x = sorted(float(np.median([sorted(b, key=lambda r: r[0])[i][0] + sorted(b, key=lambda r: r[0])[i][2] / 2
+                                     for b in per])) for i in range(keep))
+    rows, wrists = [[] for _ in face_x], [[] for _ in face_x]
+    for people in poses:
+        for p in people:
+            js = [p[k] for k in ("ls", "rs") if k in p and p[k][2] >= POSE_MIN]
+            es = [p[k][1] for k in ("le", "re") if k in p and p[k][2] >= POSE_MIN]
+            ws = [p[k][1] for k in ("lw", "rw") if k in p and p[k][2] >= POSE_MIN]
+            if not js or not es:
+                continue
+            mx = float(np.mean([j[0] for j in js]))
+            i = int(np.argmin([abs(mx - x) for x in face_x]))
+            if abs(mx - face_x[i]) < 250:
+                rows[i].append(float(np.mean(es)))
+                if ws:
+                    wrists[i].append(float(max(ws)))
+    if any(len(r) < len(poses) / 2 for r in rows):
+        return None
+    return [(x, float(np.median(r)), float(np.median(w)) if len(w) >= len(poses) / 2 else None)
+            for x, r, w in zip(face_x, rows, wrists)]
+
+
+def sample_frames(take_in, take_out, avoid, n):
+    """n recording frames spread over a take, from the frames with no old graphic on screen (`avoid`: [(first,
+    last)]) when there are at least n of them, so a burned-in name bar's edge is never measured as the anchor's."""
+    clean = [t for t in range(take_in, take_out) if not any(a <= t <= b for a, b in avoid)]
+    pool = clean if len(clean) >= n else list(range(take_in, take_out))
+    return [pool[int(len(pool) * (i + 0.5) / n)] for i in range(n)]
+
+
+def measure(edl, seg, theme, pkg, tmp, show_dir=""):
     """Where a take's anchors are and the transform that seats them."""
     path, offset = segment_source(edl, seg)
     fps = fps_value(edl["fps"])
-    cam, n = seg["cam"], seg["out"] - seg["in"]
+    cam = seg["cam"]
     keep = 2 if cam == "M" else 1
     frames, mats, pngs = [], [], []
-    for i in range(SAMPLES):
-        f = seg["in"] + offset + int(n * (i + 0.5) / SAMPLES)
+    picks = sample_frames(seg["in"], seg["out"], [(a, b) for a, b, _ in old_graphic_boxes(show_dir, edl, seg)],
+                          SAMPLES)
+    for i, t in enumerate(picks):
+        f = t + offset
         frames.append(read_frame(path, f, fps))
         mats.append(next(vision_mattes(path, f, 1, keep)))
         pngs.append(os.path.join(tmp, f"{seg['id']}-{i}.png"))
@@ -269,7 +314,8 @@ def measure(edl, seg, theme, pkg, tmp):
     alphas = [alpha_for(f, vis, plate, cam, chin) for f, vis in zip(frames, mats)]
     touch = edges_touched([np.maximum(vis, a) for vis, a in zip(mats, alphas)])
     geom = geometry(cam, theme)
-    s, tx, ty, note = fit(geom, boxes, touch, alphas)
+    poses = [arm_poses(path, t + offset, 1)[0] for t in picks]
+    s, tx, ty, note = fit(geom, boxes, touch, alphas, elbows(poses, boxes, keep))
     heights = [r[3] for b in boxes if len(b) >= keep for r in sorted(b, key=lambda r: -r[2])[:keep]]
     wanted = geom["seats"]["h"] / float(np.median(heights)) if heights else None
     return {"id": seg["id"], "recording": recording_of(edl, seg)["id"], "cam": cam, "recorded_theme": recorded,
@@ -301,6 +347,9 @@ def render_chunk(job):
     table = cv2.GaussianBlur(np.clip(rows - panel + 1, 0, 1), (0, 0), 1)[..., None]
 
     raw = subprocess.Popen(reader_args(path, lo, total, fps, "rgb24"), stdout=subprocess.PIPE)
+    pose = subprocess.Popen([ensure_tool("arm_poses"), path, str(lo), str(total)], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, text=True)
+    back = np.asarray(job["desk_back"], np.float32)
     card = tv = None
     if cam in SCREENS:
         x, y, w, h = SCREENS[cam]
@@ -325,11 +374,12 @@ def render_chunk(job):
             b = raw.stdout.read(W * H * 3)
             if len(b) < W * H * 3:
                 return
-            pending.append(np.frombuffer(b, np.uint8).reshape(H, W, 3))
+            line = pose.stdout.readline()
+            pending.append((np.frombuffer(b, np.uint8).reshape(H, W, 3), json.loads(line) if line.strip() else []))
             yield vis
 
     for i, vis in enumerate(steady(mattes())):
-        f = pending.pop(0)
+        f, people = pending.pop(0)
         if i < lead:
             continue
         if len(areas) == count:
@@ -362,6 +412,10 @@ def render_chunk(job):
             a = alpha_for(f[crop], vis[crop], plate[crop] if known else None, cam, job["chin"], origin=(y0, x0),
                           tex=tex[crop] if known else None)
             a, area = cut_and_measure(a, [(bx0 - x0, by0 - y0, bx1 - x0, by1 - y0) for bx0, by0, bx1, by1 in olds])
+            # The table top goes in front: under its back edge (where it lands once moved) only arms and hands stay.
+            xs = np.arange(x0, x1, dtype=np.float32)
+            edge_rows = (edge_y(back, s * xs + tx) - ty) / s - y0
+            a = behind_table(a, arm_mask(people, a.shape, (y0, x0)) if people else None, edge_rows)
             fg = (unmix(f[crop], a, behind[crop]) if known else f[crop].astype(np.float32)) * a[..., None]
             oy0, oy1 = max(0, int(s * y0 + ty) - 2), min(H, int(np.ceil(s * y1 + ty)) + 2)
             ox0, ox1 = max(0, int(s * x0 + tx) - 2), min(W, int(np.ceil(s * x1 + tx)) + 2)
@@ -386,7 +440,7 @@ def render_chunk(job):
             cv2.imwrite(stem + "-alpha.jpg", (alpha * 255).astype(np.uint8))
     enc.stdin.close()
     enc.wait()
-    for p in (raw, card):
+    for p in (raw, card, pose):
         if p is not None:
             p.kill()
             p.wait()
@@ -412,7 +466,8 @@ def render_take(pool, edl, show_dir, seg, entry, theme, pkg, workers, tmp):
         jobs.append({"path": path, "fps": fps_value(edl["fps"]), "rate": edl["fps"], "first": start + first,
                      "count": count, "cam": cam, "keep": 2 if cam == "M" else 1, "recorded": entry["recorded_theme"],
                      "theme": theme, "pkg": pkg, "s": entry["s"], "tx": entry["tx"], "ty": entry["ty"],
-                     "chin": entry["chin"], "desk_lip": geometry(cam, theme)["desk_lip"], "card": card,
+                     "chin": entry["chin"], "desk_lip": geometry(cam, theme)["desk_lip"],
+                     "desk_back": geometry(cam, theme)["desk_back"], "card": card,
                      "card_first": first, "standby": theme_file("standby", edl, pkg), "boxes": boxes, "runs": runs,
                      "still": start + n // 2, "stills": os.path.join(os.path.dirname(out), seg["id"]),
                      "out": os.path.join(tmp, f"{seg['id']}-{i:03d}.mp4")})
@@ -541,7 +596,7 @@ def main(argv):
             old = json.load(f)
     tmp = tempfile.mkdtemp(prefix="recomposite-")
     try:
-        entries = seat_takes([measure(edl, seg, theme, pkg, tmp) for seg in takes], old, only)
+        entries = seat_takes([measure(edl, seg, theme, pkg, tmp, show_dir) for seg in takes], old, only)
         plan_flag, abandoned = render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

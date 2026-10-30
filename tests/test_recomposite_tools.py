@@ -27,6 +27,12 @@ def blank(tmp_path_factory):
     return d
 
 
+def test_arm_poses_finds_nobody_on_a_blank_clip(blank):
+    out = subprocess.run([common.ensure_tool("arm_poses"), str(blank / "black.mov"), "5", "3"], capture_output=True,
+                         text=True, check=True).stdout
+    assert [json.loads(line) for line in out.splitlines()] == [[], [], []]
+
+
 @pytest.mark.parametrize("tool", ["face_boxes", "face_marks"])
 def test_face_tools_report_no_faces_on_a_blank_frame(blank, tool):
     out = subprocess.run([common.ensure_tool(tool), str(blank / "black.png")], capture_output=True, text=True,
