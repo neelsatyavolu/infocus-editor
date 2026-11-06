@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 import httpx
 
+from editor.graphics import GraphicsRelease
+
+VERSION_RE = re.compile(r"^[0-9a-f]{40}$")  # a graphics commit
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 STAGES = ("download", "analyze", "graphics", "audio", "build", "render", "check", "upload", "fix")
 RETRIES = 3
 BACKOFF_S = (1.0, 3.0, 9.0)
@@ -191,6 +196,21 @@ class PortalClient:
 
     async def claim(self) -> Claim | None:
         return parse_claim(await self._post("claim", {}) or {})
+
+    async def graphics(self) -> GraphicsRelease | None:
+        """The newest Graphics Source tarball, or None when there's none (or the Portal predates the route)."""
+        try:
+            data = await self._post("graphics", {}) or {}
+        except PortalError as e:
+            if e.status == 404:
+                return None
+            raise
+        version = str(data.get("version") or "")
+        if not VERSION_RE.match(version) or not data.get("url"):
+            return None
+        size, sha = data.get("size"), data.get("sha256")
+        return GraphicsRelease(version=version, url=str(data["url"]), size=size if isinstance(size, int) else None,
+                               sha256=str(sha) if isinstance(sha, str) and SHA256_RE.match(sha) else None)
 
     async def progress(self, job_id: str, stage: str, message: str) -> bool:
         if stage not in STAGES:

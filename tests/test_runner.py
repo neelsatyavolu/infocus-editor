@@ -65,6 +65,9 @@ class FakePortal:
         self.cancel_on = cancel_on
         self.log_target = log_target
 
+    async def graphics(self):
+        return None
+
     async def progress(self, job_id, stage, message):
         self.progress_calls.append((stage, message))
         return self.cancel_on is not None and self.cancel_on == stage
