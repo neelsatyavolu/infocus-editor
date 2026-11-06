@@ -15,12 +15,19 @@ The editor talks to two services:
 |---|---|---|
 | `heartbeat` | `{ version: string≤40, busy: boolean, health: { ok: boolean, problems: string[] (≤20, each ≤300) }, publicKey: string (base64 X25519), backends: [{ name: "claude"\|"codex"\|"grok", connected: boolean, detail: string≤200 }], credentialAcks: [{ id, ok: boolean, error?: string≤300 }] (≤10) }` | `{ cancelJobIds: string[], targetVersion: string \| null, credentials: [{ id, backend, ciphertext }] }` |
 | `claim` | `{}` | `{ job: null }`, or a claim (below) |
+| `graphics` | `{}` | `{ version: <40-hex commit>, url, size, sha256: string \| null }`, or `{ version: null, reason }` (below) |
 | `jobs/<id>/progress` | `{ stage: Stage, message: string≤300 }` | `{ cancel: boolean }` |
 | `jobs/<id>/upload-targets` | `{}` | `{ driveBaseUrl, video: { path, token }, poster: { path, token }, log: { path, token } }` |
 | `jobs/<id>/complete` | `{ outputNasPath, decisions, checks, needsReview, costUsd, agentSessionId, reply?, debugLogPath? }` | `{ ok: true }` |
 | `jobs/<id>/fail` | `{ error: string≤1000, cancelled: boolean, debugLogPath? }` | `{ ok: true }` |
 
 `Stage` is one of `download | analyze | graphics | audio | build | render | check | upload | fix`.
+
+### Graphics Source updates
+
+The package's `_Working Files/Graphics Source` (the HTML templates that render name bars, cards and the Follow card) follows `main` of the private infocus-graphics repo. Its `graphics-source` workflow publishes one tarball per commit on the `graphics-source` release. The Portal looks up the newest one with its read-only `SHOW_EDITOR_GRAPHICS_TOKEN` and returns GitHub's signed download link, which works for a few minutes; the token never leaves the Portal.
+
+Before every job (`editor/graphics.py`) the editor calls `graphics`. When `version` differs from `Graphics Source/.graphics-version`, it downloads the tarball, checks `sha256`, keeps its `node_modules` (or runs `npm ci` when `package-lock.json` changed) and swaps the folder in whole. A Portal without the route (404), `version: null`, or any failure keeps the installed copy and the job goes on. The rest of the package (intro, outro, sets, themes) still comes from the Setup app.
 
 ### Claim
 

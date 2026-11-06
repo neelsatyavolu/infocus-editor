@@ -13,6 +13,7 @@ from typing import Any, Callable
 from editor.backends import session_ref
 from editor.config import Config
 from editor.debugbundle import build_bundle
+from editor.graphics import sync_graphics
 from editor.housekeeping import kill_job_processes
 from editor.jobfiles import (MAX_HOUSE_RULES, build_brief, edl_cards, edl_chapters, edl_tosses, job_paths, read_json, write_house_rules,
                              write_json_atomic)
@@ -139,6 +140,9 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     """Everything up to and including the uploads; returns the completion payload."""
     cfg = deps.cfg
     paths = job_paths(cfg, claim)
+    log.info("%s", await sync_graphics(deps.portal, deps.drive, cfg.package_dir, run=deps.run))
+    if cancel.is_set():
+        raise JobCancelled()
     if claim.kind == "fix":
         prepared = read_prepared(paths) if paths.root.is_dir() else None
         if prepared is None:
