@@ -141,6 +141,8 @@ async def _run(deps: RunnerDeps, claim: Claim, cancel: asyncio.Event, reporter: 
     cfg = deps.cfg
     paths = job_paths(cfg, claim)
     log.info("%s", await sync_graphics(deps.portal, deps.drive, cfg.package_dir, run=deps.run))
+    if cancel.is_set():
+        raise JobCancelled()
     if claim.kind == "fix":
         prepared = read_prepared(paths) if paths.root.is_dir() else None
         if prepared is None:

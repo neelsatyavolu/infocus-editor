@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 VERSION_FILE = ".graphics-version"
 REQUIRED = ("graphics.html", "render.mjs")
-NPM_TIMEOUT_S = 10 * 60
+NPM_TIMEOUT_S = 5 * 60  # each of npm ci and the Chromium install; both only run when the lockfile changed
 # One install at a time: a job stopped mid-update leaves its thread running, and the next job must wait for it.
 _INSTALL_LOCK = threading.Lock()
 
@@ -76,7 +76,13 @@ async def sync_graphics(portal: Any, drive: Any, package_dir: Path, *, run: Run 
 
 
 def recover(gfx: Path) -> None:
-    """Put the previous copy back if a swap was cut off between its two renames."""
+    """Put the previous copy back if a swap was cut off between its two renames. Waits for an install still
+    running from a job that was stopped, so this job never starts while the folder is being swapped."""
+    with _INSTALL_LOCK:
+        _recover(gfx)
+
+
+def _recover(gfx: Path) -> None:
     old = gfx.with_name(gfx.name + ".old")
     if not gfx.exists() and old.is_dir():
         old.rename(gfx)
@@ -108,7 +114,7 @@ def _install(tarball: Path, gfx: Path, release: GraphicsRelease, run: Run) -> No
         new.rename(gfx)
     except BaseException:
         shutil.rmtree(new, ignore_errors=True)
-        recover(gfx)
+        _recover(gfx)
         raise
     shutil.rmtree(old, ignore_errors=True)
 
