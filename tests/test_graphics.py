@@ -76,6 +76,40 @@ def test_install_runs_npm_ci_when_the_lockfile_changed(tmp_path):
     assert installed_version(gfx) == V2
 
 
+def test_npm_ci_is_followed_by_that_playwright_versions_chromium(tmp_path):
+    gfx = installed(tmp_path)
+    tarball = make_tarball(tmp_path / "t.tar.gz", good_files(lock=b"bumped"))
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ["npm", "ci"]:
+            pw = Path(cmd[-1]) / "node_modules" / "playwright-core"
+            pw.mkdir(parents=True)
+            (pw / "package.json").write_text('{"version": "1.99.0"}')
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    install(tarball, gfx, release(tarball), run)
+    assert calls[-1] == ["npx", "--yes", "playwright@1.99.0", "install", "chromium"]
+    assert installed_version(gfx) == V2
+
+
+def test_a_failed_swap_puts_the_old_copy_back(tmp_path, monkeypatch):
+    gfx = installed(tmp_path)
+    tarball = make_tarball(tmp_path / "t.tar.gz", good_files())
+    real_rename = Path.rename
+
+    def rename(self, target):
+        if self.name == "Graphics Source.new":
+            raise OSError("disk full")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    with pytest.raises(OSError):
+        install(tarball, gfx, release(tarball), Run())
+    assert (gfx / "graphics.html").read_text() == "<html>old</html>"
+
+
 @pytest.mark.parametrize("files, sha, why", [
     (good_files(), "0" * 64, "checksum"),
     ({"graphics.html": b"x"}, None, "render.mjs"),

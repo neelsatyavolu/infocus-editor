@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import shutil
 import subprocess
 import tarfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +24,8 @@ log = logging.getLogger(__name__)
 VERSION_FILE = ".graphics-version"
 REQUIRED = ("graphics.html", "render.mjs")
 NPM_TIMEOUT_S = 10 * 60
+# One install at a time: a job stopped mid-update leaves its thread running, and the next job must wait for it.
+_INSTALL_LOCK = threading.Lock()
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -65,6 +69,7 @@ async def sync_graphics(portal: Any, drive: Any, package_dir: Path, *, run: Run 
             await asyncio.to_thread(install, tarball, gfx, release, run)
         finally:
             tarball.unlink(missing_ok=True)
+            tarball.with_name(tarball.name + ".part").unlink(missing_ok=True)
         return f"graphics: updated to {release.version[:12]}"
     except Exception as e:  # noqa: BLE001 - the installed graphics still work
         return f"graphics: kept the installed copy, the update failed ({e.__class__.__name__}: {e})"[:400]
@@ -78,6 +83,11 @@ def recover(gfx: Path) -> None:
 
 
 def install(tarball: Path, gfx: Path, release: GraphicsRelease, run: Run = subprocess.run) -> None:
+    with _INSTALL_LOCK:
+        _install(tarball, gfx, release, run)
+
+
+def _install(tarball: Path, gfx: Path, release: GraphicsRelease, run: Run) -> None:
     if release.sha256 and _sha256(tarball) != release.sha256.lower():
         raise GraphicsError("the download doesn't match its checksum")
     new = gfx.with_name(gfx.name + ".new")
@@ -98,12 +108,14 @@ def install(tarball: Path, gfx: Path, release: GraphicsRelease, run: Run = subpr
         new.rename(gfx)
     except BaseException:
         shutil.rmtree(new, ignore_errors=True)
+        recover(gfx)
         raise
     shutil.rmtree(old, ignore_errors=True)
 
 
 def _node_modules(gfx: Path, new: Path, run: Run) -> None:
-    """Reuse this Mac's node_modules when the lockfile is unchanged (an APFS clone, so instant), else npm ci."""
+    """Reuse this Mac's node_modules when the lockfile is unchanged (an APFS clone, so instant), else npm ci
+    and the Chromium for that Playwright version, as install/user-setup.sh does."""
     lock = "package-lock.json"
     same_lock = (gfx / lock).is_file() and (new / lock).is_file() and (gfx / lock).read_bytes() == (new / lock).read_bytes()
     if same_lock and (gfx / "node_modules").is_dir():
@@ -121,6 +133,13 @@ def _node_modules(gfx: Path, new: Path, run: Run) -> None:
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
         raise GraphicsError(f"npm failed ({tail[0][:150]})")
+    pw = new / "node_modules" / "playwright-core" / "package.json"
+    version = json.loads(pw.read_text()).get("version") if pw.is_file() else None
+    if version:
+        proc = run(["npx", "--yes", f"playwright@{version}", "install", "chromium"], capture_output=True, text=True,
+                   check=False, timeout=NPM_TIMEOUT_S)
+        if proc.returncode != 0:
+            raise GraphicsError(f"couldn't install Chromium for Playwright {version}")
 
 
 def _sha256(path: Path) -> str:
