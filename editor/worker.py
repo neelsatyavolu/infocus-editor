@@ -26,7 +26,9 @@ class RestartRequested(Exception):
 
 @dataclass(frozen=True)
 class LoopSettings:
-    heartbeat_s: float = 60.0
+    heartbeat_s: float = 15.0  # how soon a remote (editor-shell) command is picked up when nobody is using it
+    hot_heartbeat_s: float = 2.0  # ...and while someone is: after a shell command, for hot_for_s
+    hot_for_s: float = 600.0
     unlinked_heartbeat_s: float = 300.0
     poll_s: float = 30.0
     doctor_s: float = 600.0
@@ -64,6 +66,8 @@ class Worker:
         self._guard_problem: str | None = None
         self._shell = shell
         self._shell_tasks: set[asyncio.Task] = set()
+        self._hot_until = float("-inf")
+        self._wake = asyncio.Event()  # beat now: a shell result is waiting to go back
         self._s = settings
         self._clock = clock
         self.health = Health(False, ("Starting up",))
@@ -160,6 +164,7 @@ class Worker:
                 continue
             self._seen_commands.add(command.id)
             if command.kind.startswith(SHELL_PREFIX):
+                self._hot_until = self._clock() + self._s.hot_for_s
                 self._start_shell(command)
             elif command.kind in IMMEDIATE:
                 await self._run_immediate(command)
@@ -181,7 +186,14 @@ class Worker:
                 await self.heartbeat_once()
             except Exception as e:  # noqa: BLE001 - keep beating through network blips
                 log.warning("heartbeat failed: %s", e)
-            await asyncio.sleep(self._s.unlinked_heartbeat_s if self.unlinked else self._s.heartbeat_s)
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._wake.wait(), self._heartbeat_interval())
+            self._wake.clear()
+
+    def _heartbeat_interval(self) -> float:
+        if self.unlinked:
+            return self._s.unlinked_heartbeat_s
+        return self._s.hot_heartbeat_s if self._clock() < self._hot_until else self._s.heartbeat_s
 
     # ---- commands ---------------------------------------------------------
 
@@ -201,6 +213,7 @@ class Worker:
             except Exception as e:  # noqa: BLE001 - report it, never crash the loop
                 ok, output = False, f"The command crashed: {e.__class__.__name__}: {e}"
             self._ack(command, ok, output)
+            self._wake.set()
 
         task = asyncio.create_task(go())
         self._shell_tasks.add(task)

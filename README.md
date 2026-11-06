@@ -28,7 +28,7 @@ Portal  ── claim / heartbeat / progress / complete ──►  this worker (l
 
 | Module | Job |
 |---|---|
-| `editor/main.py`, `editor/worker.py` | CLI (`run`, `doctor`, `link`, `connect`) and the loop: a heartbeat every 60 s (also during jobs, carrying health, machine, AI accounts, pairing key and acks), Portal settings and commands, a health check every 10 min, one job at a time, updates between jobs. |
+| `editor/main.py`, `editor/worker.py` | CLI (`run`, `doctor`, `link`, `connect`) and the loop: a heartbeat every 15 s, every 2 s for 10 min after a remote shell command, whose result goes back at once (also during jobs, carrying health, machine, AI accounts, pairing key and acks), Portal settings and commands, a health check every 10 min, one job at a time, updates between jobs. |
 | `editor/link.py`, `editor/commands.py`, `editor/service.py` | Linking by device code; Portal commands (health check, update, restart, repair, log); restarting and reloading the launchd agent. |
 | `editor/power.py`, `editor/logs.py` | Job-length sleep assertion on personal computers; scrubbed log tail. |
 | `editor/joblog.py`, `editor/scrub.py`, `editor/debugbundle.py` | The per-job log and agent transcripts; secret scrubbing for every log; the debug bundle uploaded after each run. |

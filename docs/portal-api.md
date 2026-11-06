@@ -91,7 +91,7 @@ Before every job (`editor/graphics.py`) the editor calls `graphics`. When `versi
 
 ### Portal behaviour the editor relies on
 
-- **Stale jobs:** a job whose last progress or heartbeat is more than 15 minutes old goes back to QUEUED (`attempt + 1`). It becomes FAILED once `attempt ≥ 2`. While a job runs, the editor must heartbeat every 60 s and report progress when the stage changes.
+- **Stale jobs:** a job whose last progress or heartbeat is more than 15 minutes old goes back to QUEUED (`attempt + 1`). It becomes FAILED once `attempt ≥ 2`. While a job runs, the editor must heartbeat at least every 60 s (it beats every 15 s) and report progress when the stage changes.
 - **Cancel:** shows up in `progress → { cancel: true }` and in `heartbeat → cancelJobIds`.
 - **Remote update:** `targetVersion` is the Portal setting `SHOW_EDITOR_TARGET_VERSION`, a release tag such as `v0.3.1`, or `null` when it isn't set.
   - When it's set, the editor moves to exactly that tag (pin or roll back) the next time it's idle.

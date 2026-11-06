@@ -102,3 +102,47 @@ async def test_the_worker_runs_shell_commands_in_the_background_and_acks_them():
     await w.heartbeat_once()
     assert calls == ["s1"]
     assert portal.bodies[1]["commandAcks"] == [{"id": "s1", "ok": True, "output": "done"}]
+
+
+async def _beat_for(w, seconds):
+    beat = asyncio.create_task(w.heartbeat_forever())
+    await asyncio.sleep(seconds)
+    beat.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await beat
+
+
+def _hot_worker(portal, fake_shell):
+    from editor.portal import Health
+    from editor.worker import LoopSettings
+    from tests.test_main import worker
+
+    w = worker(portal, lambda c, e: None, health=Health(True, ()), shell=fake_shell)
+    w._s = LoopSettings(heartbeat_s=1000, hot_heartbeat_s=0.02, hot_for_s=1000, doctor_s=1000)
+    return w
+
+
+async def test_a_shell_result_goes_back_at_once_and_the_mac_keeps_checking_quickly():
+    from editor.portal import Command
+    from tests.test_main import FakePortal
+
+    portal = FakePortal(commands=[Command("s1", signed(cid="s1"))], active=False)
+
+    async def fake_shell(cid, kind):
+        return True, "done"
+
+    await _beat_for(_hot_worker(portal, fake_shell), 0.3)
+    assert portal.bodies[1]["commandAcks"] == [{"id": "s1", "ok": True, "output": "done"}]
+    assert len(portal.bodies) >= 5  # a follow-up command is picked up within hot_heartbeat_s
+
+
+async def test_without_a_shell_command_the_mac_checks_at_the_normal_pace():
+    from tests.test_main import FakePortal
+
+    portal = FakePortal(active=False)
+
+    async def fake_shell(cid, kind):
+        return True, "done"
+
+    await _beat_for(_hot_worker(portal, fake_shell), 0.2)
+    assert len(portal.bodies) == 1
