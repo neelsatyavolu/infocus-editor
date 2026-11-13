@@ -1,7 +1,9 @@
 """Shared paths, constants and EDL helpers for the InFocus show scripts (stdlib only)."""
+import datetime
 import json
 import os
 import subprocess
+import sys
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 WHISPER_MODEL = os.path.expanduser("~/.cache/whisper-cpp/ggml-large-v3-turbo.bin")
@@ -65,7 +67,35 @@ THEMES = {
         "middle": "Themes/Thanksgiving/04 Virtual Sets/InFocus Virtual Set Thanksgiving 2026 - Middle.png",
         "right": "Themes/Thanksgiving/04 Virtual Sets/InFocus Virtual Set Thanksgiving 2026 - Right.png",
     },
+    "christmas": {
+        "intro": "Themes/Christmas/03 Intro & Outro/InFocus Intro Christmas 2026.mp4",
+        "outro": "Themes/Christmas/03 Intro & Outro/InFocus Outro Christmas 2026.mp4",
+        "follow": "Themes/Christmas/08 Follow InFocus/InFocus Follow Us (Christmas).mov",
+        "standby": "Themes/Christmas/09 TV Standby/InFocus TV Standby (Christmas).png",
+        "left": "Themes/Christmas/04 Virtual Sets/InFocus Virtual Set Christmas 2026 - Left.png",
+        "middle": "Themes/Christmas/04 Virtual Sets/InFocus Virtual Set Christmas 2026 - Middle.png",
+        "right": "Themes/Christmas/04 Virtual Sets/InFocus Virtual Set Christmas 2026 - Right.png",
+    },
 }
+
+
+def thanksgiving(year):
+    """US Thanksgiving: the fourth Thursday of November."""
+    first = datetime.date(year, 11, 1)
+    return first + datetime.timedelta(days=(3 - first.weekday()) % 7 + 21)
+
+
+def season_theme(show_date):
+    """The theme a show gets by its airing date ("YYYY-MM-DD") when nobody asks otherwise: Halloween from Oct 15 to
+    Oct 31, Thanksgiving from Nov 1 to the day before Thanksgiving, Christmas from Thanksgiving to Dec 25, else ""."""
+    day = datetime.date.fromisoformat(show_date[:10])
+    if datetime.date(day.year, 10, 15) <= day <= datetime.date(day.year, 10, 31):
+        return "halloween"
+    if datetime.date(day.year, 11, 1) <= day < thanksgiving(day.year):
+        return "thanksgiving"
+    if thanksgiving(day.year) <= day <= datetime.date(day.year, 12, 25):
+        return "christmas"
+    return ""
 
 
 def theme_name(edl=None):
@@ -261,3 +291,8 @@ def ensure_tool(name):
         os.makedirs(os.path.dirname(exe), exist_ok=True)
         subprocess.run(["swiftc", "-O", os.path.join(SCRIPTS, f"{name}.swift"), "-o", exe], check=True)
     return exe
+
+
+if __name__ == "__main__":
+    # python common.py <showDate>: prints the date's theme (an empty line for the regular look).
+    print(season_theme(sys.argv[1]))

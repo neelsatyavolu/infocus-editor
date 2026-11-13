@@ -34,7 +34,7 @@ def test_theme_comes_from_the_edl_then_the_environment(monkeypatch):
 
 def test_an_unknown_theme_is_refused():
     with pytest.raises(RuntimeError, match="Unknown theme"):
-        common.theme_name({"theme": "christmas"})
+        common.theme_name({"theme": "easter"})
 
 
 def test_theme_files_live_under_themes_in_the_package():
@@ -46,6 +46,20 @@ def test_theme_files_live_under_themes_in_the_package():
     assert common.theme_file("follow", edl) == \
         "/pkg/Themes/Thanksgiving/08 Follow InFocus/InFocus Follow Us (Thanksgiving).mov"
     assert set(common.THEMES["thanksgiving"]) == set(common.THEMES[""])
+    edl = {"package": "/pkg", "theme": "christmas"}
+    assert common.theme_file("intro", edl) == "/pkg/Themes/Christmas/03 Intro & Outro/InFocus Intro Christmas 2026.mp4"
+    assert set(common.THEMES["christmas"]) == set(common.THEMES[""])
+
+
+@pytest.mark.parametrize("show_date, theme", [
+    ("2026-10-14", ""), ("2026-10-15", "halloween"), ("2026-10-31", "halloween"),
+    ("2026-11-01", "thanksgiving"), ("2026-11-25", "thanksgiving"),
+    ("2026-11-26", "christmas"),                       # Thanksgiving 2026 (fourth Thursday)
+    ("2026-12-25", "christmas"), ("2026-12-26", ""), ("2027-01-05", ""), ("2026-09-30", ""),
+    ("2027-11-24", "thanksgiving"), ("2027-11-25", "christmas"),   # Thanksgiving 2027 is Nov 25
+])
+def test_season_theme_follows_the_calendar(show_date, theme):
+    assert common.season_theme(show_date) == theme
 
 
 def _package(tmp_path, *themes):
@@ -102,6 +116,12 @@ def test_cranberry_and_gold_graphics_count_as_overlays_but_skin_and_wood_dont():
              (180, 110, 80), (160, 82, 60), (230, 190, 130), (200, 150, 110)]   # skin, blond hair, oak
     f = _swatch(cranberry, gold, dot, *looks)
     assert analyze.brand_mask(f)[0].tolist() == [True, True, True] + [False] * len(looks)
+
+
+def test_christmas_graphics_count_as_overlays():
+    red, scarlet, holly, deep_holly = (176, 30, 46), (212, 43, 43), (35, 160, 92), (10, 107, 60)
+    f = _swatch(red, scarlet, holly, deep_holly)
+    assert analyze.brand_mask(f)[0].tolist() == [True] * 4
 
 
 def test_rule_5_wants_the_themes_intro_and_outro():
