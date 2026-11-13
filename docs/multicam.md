@@ -24,6 +24,7 @@ The steps below run on every file chosen for the job (1–12):
    - its duration
    - an 8 kHz mono audio envelope
    - a picture profile: classify one frame every 2 s with `analyze.py`'s camera classifier into M, L, R, FS, BLACK or OTHER, then take the class histogram and the cut rate
+     - a raw green-screen frame (no virtual set: green behind the anchors) is classed by where its people sit: two people M, one right of centre L, one left of centre R (`green_screen.green_camera`)
 3. **Group simultaneous files.** Cross-correlate every pair of envelopes. A strong peak (above the confidence ratio threshold) means the two files were recorded at the same time, and the peak position gives the offset. Connected groups are **recordings**.
 4. **Within a recording:**
    - **One file:** a `program` recording (a switched feed with burned-in graphics, as today).

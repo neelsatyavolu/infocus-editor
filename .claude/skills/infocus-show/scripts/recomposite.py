@@ -8,10 +8,13 @@ table's front panel in front. build_ffmpeg.py reads the result instead of the re
     uv run --with numpy --with opencv-python python recomposite.py <show_dir> [--only <take id>] [--workers N]
 
 Writes Recomposite/<id> - Recomposite.mov per take, its before/after/alpha stills, and Recomposite/plan.json:
-{"theme", "seconds", "abandoned", "flag", "takes": [{"id", "recording", "cam", "recorded_theme", "s", "tx", "ty",
-"status": "recomposited"|"fallback", "flag", "note", "tight"}]}. A take that fails its checks keeps its original
-picture when that is the same set the show goes out on; otherwise it keeps its best matte and is flagged, so the
-show never mixes two sets.
+{"theme", "seconds", "abandoned", "flag", "takes": [{"id", "recording", "cam", "recorded_theme", "green", "s", "tx",
+"ty", "status": "recomposited"|"fallback", "flag", "note", "tight"}]}. A take that fails its checks keeps its
+original picture when that is the same set the show goes out on; otherwise it keeps its best matte and is flagged, so
+the show never mixes two sets.
+
+A raw green-screen take (the camera recorded without the virtual set: green_screen.py) is keyed instead of told from
+the set plate, and never falls back: it has no picture of a set to fall back to.
 """
 import json
 import math
@@ -28,10 +31,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from anchor_alpha import (CARD_INK, POSE_MIN, alpha_for, arm_mask, behind_table, blend, cut_and_measure,  # noqa: E402
-                          matte_kind, patch_mask, roi, steady, texture, unmix)
+                          patch_mask, roi, steady, texture, unmix)
 from common import (H, SCREENS, W, card_file, ensure_tool, fps_value, is_fixup, load_edl,  # noqa: E402
                     overlay_file, package_dir, recomposite_file, recording_of, seek_args, segment_source,
                     take_signature, theme_file, theme_name)
+from green_screen import despill, green_alpha, is_green_take, key_lead  # noqa: E402
 from seat import (LIP_PANEL, SCALE_RANGE, SHARE_PX, SHARE_SCALE, edge_y, edges_touched, fit,  # noqa: E402
                   settle, share_transforms)
 from virtual_set import SET_KEY, geometry, recorded_theme, set_image  # noqa: E402
@@ -57,9 +61,10 @@ def chunks(n, workers):
     return out
 
 
-def on_failure(recorded, output):
-    """What a failed take shows: its original picture only when that is the set the show goes out on."""
-    return "fallback" if recorded == output else "keep"
+def on_failure(recorded, output, green=False):
+    """What a failed take shows: its original picture only when that is the set the show goes out on (never for a
+    green-screen take, whose picture has no set)."""
+    return "fallback" if recorded == output and not green else "keep"
 
 
 def take_ok(found, samples, areas, wanted, known_set=True):
@@ -321,11 +326,13 @@ def measure(edl, seg, theme, pkg, tmp, show_dir=""):
     picks = [picks[i] for i in idx]
     boxes = face_boxes(pngs)
     masks = [cv2.dilate((m > 0.25).astype(np.uint8), np.ones((31, 31), np.uint8)).astype(bool) for m in mats]
-    recorded = recorded_theme(frames, masks, cam, pkg)
+    green = is_green_take(frames, masks)
+    key = float(np.median([key_lead(f) for f in frames])) if green else None
+    recorded = None if green else recorded_theme(frames, masks, cam, pkg)
     plate = set_image(cam, recorded, pkg) if recorded is not None else None
     found_boxes = [r for b in boxes for r in b]
     chin = float(np.median([r[1] + r[3] for r in found_boxes])) if found_boxes else H / 2
-    alphas = [alpha_for(f, vis, plate, cam, chin) for f, vis in zip(frames, mats)]
+    alphas = [green_alpha(f, vis, key) if green else alpha_for(f, vis, plate, cam, chin) for f, vis in zip(frames, mats)]
     touch = edges_touched([np.maximum(vis, a) for vis, a in zip(mats, alphas)])
     geom = geometry(cam, theme)
     poses = [arm_poses(path, t + offset, 1)[0] for t in picks]
@@ -333,7 +340,7 @@ def measure(edl, seg, theme, pkg, tmp, show_dir=""):
     heights = [r[3] for b in boxes if len(b) >= keep for r in sorted(b, key=lambda r: -r[2])[:keep]]
     wanted = geom["seats"]["h"] / float(np.median(heights)) if heights else None
     return {"id": seg["id"], "recording": recording_of(edl, seg)["id"], "cam": cam, "recorded_theme": recorded,
-            "s": s, "tx": tx, "ty": ty, "note": note, "tight": bool(touch["bottom"]), "chin": chin,
+            "green": green, "key": key, "s": s, "tx": tx, "ty": ty, "note": note, "tight": bool(touch["bottom"]), "chin": chin,
             "found": sum(len(b) >= keep for b in boxes), "samples": len(idx), "wanted": wanted}
 
 
@@ -423,14 +430,20 @@ def render_chunk(job):
             # All the work happens in the box around the anchor, then in where that box lands once moved.
             y0, y1, x0, x1 = box
             crop = (slice(y0, y1), slice(x0, x1))
-            a = alpha_for(f[crop], vis[crop], plate[crop] if known else None, cam, job["chin"], origin=(y0, x0),
-                          tex=tex[crop] if known else None)
+            if job["green"]:
+                a = green_alpha(f[crop], vis[crop], job["key"])
+            else:
+                a = alpha_for(f[crop], vis[crop], plate[crop] if known else None, cam, job["chin"], origin=(y0, x0),
+                              tex=tex[crop] if known else None)
             a, area = cut_and_measure(a, [(bx0 - x0, by0 - y0, bx1 - x0, by1 - y0) for bx0, by0, bx1, by1 in olds])
             # The table top goes in front: under its back edge (where it lands once moved) only arms and hands stay.
             xs = np.arange(x0, x1, dtype=np.float32)
             edge_rows = (edge_y(back, s * xs + tx) - ty) / s - y0
             a = behind_table(a, arm_mask(people, a.shape, (y0, x0)) if people else None, edge_rows)
-            fg = (unmix(f[crop], a, behind[crop]) if known else f[crop].astype(np.float32)) * a[..., None]
+            if job["green"]:
+                fg = despill(f[crop], a).astype(np.float32) * a[..., None]
+            else:
+                fg = (unmix(f[crop], a, behind[crop]) if known else f[crop].astype(np.float32)) * a[..., None]
             oy0, oy1 = max(0, int(s * y0 + ty) - 2), min(H, int(np.ceil(s * y1 + ty)) + 2)
             ox0, ox1 = max(0, int(s * x0 + tx) - 2), min(W, int(np.ceil(s * x1 + tx)) + 2)
             if oy0 < oy1 and ox0 < ox1:
@@ -479,6 +492,7 @@ def take_jobs(edl, show_dir, seg, entry, theme, pkg, workers, tmp):
     for i, (first, count) in enumerate(chunks(n, workers)):
         jobs.append({"path": path, "fps": fps_value(edl["fps"]), "rate": edl["fps"], "first": start + first,
                      "count": count, "cam": cam, "keep": 2 if cam == "M" else 1, "recorded": entry["recorded_theme"],
+                     "green": entry.get("green", False), "key": entry.get("key"),
                      "theme": theme, "pkg": pkg, "s": entry["s"], "tx": entry["tx"], "ty": entry["ty"],
                      "chin": entry["chin"], "desk_lip": geometry(cam, theme)["desk_lip"],
                      "desk_back": geometry(cam, theme)["desk_back"], "card": card,
@@ -545,8 +559,14 @@ def adopt(entry, siblings):
 def plan_entry(e, show_dir, edl, seg):
     """A take's line in plan.json, with what it was made from (stale_takes compares it before every build)."""
     keys = ("id", "recording", "cam", "recorded_theme", "s", "tx", "ty", "status", "flag", "note", "tight")
-    return {**{k: e[k] for k in keys}, "seated_by": e.get("seated_by", "script"),
+    return {**{k: e[k] for k in keys}, "green": bool(e.get("green")), "seated_by": e.get("seated_by", "script"),
             "source": take_signature(show_dir, edl, seg)}
+
+
+def filmed_on(e):
+    if e.get("green"):
+        return "filmed on a green screen"
+    return f"filmed on {'an unknown' if e['recorded_theme'] is None else e['recorded_theme'] or 'regular'} set"
 
 
 def flag(seg_id, reason, action):
@@ -563,11 +583,10 @@ def write_plan(show_dir, plan):
 
 
 def check_inputs(show_dir, edl, takes, theme, pkg):
-    """Fail before anything renders: the theme's sets, every side take's card, a recording kind we can matte."""
+    """Fail before anything renders: the theme's sets and every side take's card."""
     for cam in SET_KEY:
         set_image(cam, theme, pkg)
     for seg in takes:
-        matte_kind(recording_of(edl, seg))
         if seg.get("cam") in SCREENS and seg.get("card") and not os.path.exists(card_file(show_dir, seg)):
             raise SystemExit(f"take {seg['id']}: no card at {card_file(show_dir, seg)}; run render_graphics.mjs first")
 
@@ -589,9 +608,9 @@ def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
     """Render every take that can be re-composited; returns (plan flag, abandoned reason)."""
     by_id = {s["id"]: s for s in takes}
     for e in entries:
-        e["known"] = e["recorded_theme"] is not None
+        e["known"] = e["recorded_theme"] is not None or e["green"]
         e["ok"], e["reason"] = take_ok(e["found"], e["samples"], [], e["wanted"], e["known"])
-        e["action"] = on_failure(e["recorded_theme"], theme)
+        e["action"] = on_failure(e["recorded_theme"], theme, e["green"])
         skip = not e["ok"] and e["action"] == "fallback"
         e.update(status="fallback" if skip else "recomposited",
                  flag=flag(e["id"], e["reason"], e["action"]) if skip else None)
@@ -611,8 +630,7 @@ def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
                 if e["action"] == "fallback":
                     e["status"] = "fallback"
                     os.remove(recomposite_file(show_dir, seg))
-            filmed = "an unknown" if e["recorded_theme"] is None else e["recorded_theme"] or "regular"
-            print(f"{e['id']} [{e['cam']}, filmed on {filmed} set]: scale {e['s']:.3f}, "
+            print(f"{e['id']} [{e['cam']}, {filmed_on(e)}]: scale {e['s']:.3f}, "
                   f"offset ({e['tx']:.0f}, {e['ty']:.0f}) -> {e['status']}{' (flagged)' if e['flag'] else ''}",
                   flush=True)
             if plan_flag is None and over_budget(render_s, done, total):
@@ -653,7 +671,7 @@ def main(argv):
             e = entries[0]
             after, guide = preview(edl, show_dir, takes[0], e, theme, pkg, tmp)
             print(f"{e['id']}: seat scale {e['s']:.3f}, x {e['tx']:.0f}, y {e['ty']:.0f} "
-                  f"({e.get('seated_by', 'script')}); filmed on {e['recorded_theme']!r} set\n{after}\n{guide}")
+                  f"({e.get('seated_by', 'script')}); {filmed_on(e)}\n{after}\n{guide}")
             return 0
         plan_flag, abandoned = render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp)
     finally:

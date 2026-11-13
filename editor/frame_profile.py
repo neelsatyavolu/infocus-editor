@@ -32,7 +32,7 @@ def main(argv: list[str]) -> int:
         buf = proc.stdout.read(w * h * 3)
         if len(buf) < w * h * 3:
             break
-        classes.append(analyze.classify(np.frombuffer(buf, np.uint8).reshape(h, w, 3), mid))
+        classes.append(analyze.classify(np.frombuffer(buf, np.uint8).reshape(h, w, 3), mid, green_as_camera=True))
     proc.wait()
     print(json.dumps(classes))
     return 0 if proc.returncode == 0 else 1

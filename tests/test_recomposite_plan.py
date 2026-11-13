@@ -29,6 +29,7 @@ def test_failed_take_falls_back_only_when_the_set_stays_the_same():
     assert recomposite.on_failure(None, "") == "keep"        # filmed on a set the package doesn't have
     assert recomposite.on_failure("", "halloween") == "keep"
     assert recomposite.on_failure("halloween", "") == "keep"
+    assert recomposite.on_failure(None, "", green=True) == "keep"    # a green screen has no set to fall back to
 
 
 def test_take_with_no_faces_fails():

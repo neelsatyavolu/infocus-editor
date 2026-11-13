@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / ".claude/skills/infocus-show/scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -49,12 +48,6 @@ def test_steady_keeps_real_movement_and_drops_one_frame_flicker():
     flick[1, 1] = 1
     out = list(anchor_alpha.steady(iter([base, flick, base, base])))
     assert len(out) == 4 and out[1][1, 1] == 0
-
-
-def test_green_screen_is_not_built_yet():
-    assert anchor_alpha.matte_kind({"kind": "program"}) == "baked"
-    with pytest.raises(NotImplementedError, match="later phase"):
-        anchor_alpha.matte_kind({"kind": "green"})
 
 
 def test_anchor_area_is_measured_before_old_graphics_are_cut():

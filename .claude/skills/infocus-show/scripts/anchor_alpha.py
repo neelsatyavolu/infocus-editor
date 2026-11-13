@@ -2,8 +2,8 @@
 
 Vision person instances (anchor_matte) decide what is anchor, hands and fingers too, whose skin can match the set's
 wood exactly. The set plate (the package PNG the switcher keyed onto, pixel for pixel) only takes pixels away: near
-Vision's loose edge, a pixel within compression noise of the set is set. Raw green-screen feeds will get their own
-matte later; matte_kind() is where that branch goes.
+Vision's loose edge, a pixel within compression noise of the set is set. Raw green-screen feeds are keyed instead
+(green_screen.py).
 """
 import cv2
 import numpy as np
@@ -14,13 +14,6 @@ H, W = 1080, 1920
 CARD_INK = (15, 17, 15)                       # announcement card background (#0F110F)
 BOX_PAD = 30                                  # old plates can sit a little outside their analysis zone
 ROI_PAD = 48                                  # px around Vision's matte where the anchor's edge and hair can reach
-
-
-def matte_kind(recording):
-    """How a recording's anchors are matted: "baked" (the set is keyed into the picture)."""
-    if recording.get("kind") == "green":
-        raise NotImplementedError("green-screen recordings arrive in a later phase")
-    return "baked"
 
 
 def texture(plate):
