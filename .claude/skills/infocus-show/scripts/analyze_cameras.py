@@ -94,7 +94,7 @@ def scan(cams, n, fps, package):
                 continue
             f = np.frombuffer(buf, np.uint8).reshape(MH, MW, 3)
             small = cv2.resize(f, (SW, SH), interpolation=cv2.INTER_AREA)
-            st[k]["cam"].append(classify(small, mid))
+            st[k]["cam"].append(classify(small, mid, green_as_camera=True))
             tiny = cv2.resize(small, (96, 54), interpolation=cv2.INTER_AREA).astype(np.int16)
             st[k]["diff"].append(float(np.abs(tiny - prev[k]).mean()) if k in prev else 0.0)
             prev[k] = tiny

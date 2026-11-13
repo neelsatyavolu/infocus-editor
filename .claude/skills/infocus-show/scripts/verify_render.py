@@ -190,6 +190,7 @@ def rule_switcher_frames(cams, layout):
                 bad.setdefault(cam, []).append(t)
         for cam, frames in bad.items():
             what = {"FS": "a full-screen card", "BLACK": "black", "OTHER": "a non-studio picture",
+                    "GREEN": "the raw green screen (a green-screen take is always re-composited)",
                     "missing": "no picture (render too short)"}[cam]
             for a, b in runs(frames):
                 n = b - a + 1

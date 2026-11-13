@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import FOLLOW_BOX, NAMEBAR_BAND, SCREENS, THEMES, WHISPER_MODEL, fps_value, package_dir, probe  # noqa: E402
+from green_screen import green_camera, is_green  # noqa: E402
 from tv_key import key_mask  # noqa: E402
 
 SW, SH = 480, 270                      # analysis resolution (1080p / 4)
@@ -97,9 +98,11 @@ SCREEN_SLICES = {k: rect(v) for k, v in SCREENS.items()}
 M_TOLERANCE = 30
 
 
-def classify(f, mid, ignore=None):
-    """Camera class of one analysis-resolution RGB frame: M, L, R, FS, BLACK or OTHER. `ignore` (a bool mask) leaves
-    pixels out of every test: the edit's own fresh graphics, which say nothing about the camera."""
+def classify(f, mid, ignore=None, green_as_camera=False):
+    """Camera class of one analysis-resolution RGB frame: M, L, R, FS, BLACK, GREEN or OTHER. `ignore` (a bool mask)
+    leaves pixels out of every test: the edit's own fresh graphics, which say nothing about the camera. A raw
+    green-screen frame is GREEN, or with `green_as_camera` the camera its people say it is (telling camera files
+    apart, before they're re-composited)."""
     everywhere = (slice(None), slice(None))
 
     def kept(a, where=everywhere):
@@ -112,6 +115,8 @@ def classify(f, mid, ignore=None):
     dark = mx < 45
     if kept(f).mean() < 8:
         return "BLACK"
+    if is_green(f, ignore):
+        return (green_camera(f) or "OTHER") if green_as_camera else "GREEN"
     mids = mid if mid.ndim == 4 else mid[None]
     if min(np.median(kept(np.abs(f.astype(np.int16) - m).max(2))) for m in mids) < M_TOLERANCE:
         return "M"
@@ -147,7 +152,7 @@ def classify_frames(path, every_s=2.0, package=None):
         buf = p.stdout.read(SW * SH * 3)
         if len(buf) < SW * SH * 3:
             break
-        out.append(classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid))
+        out.append(classify(np.frombuffer(buf, np.uint8).reshape(SH, SW, 3), mid, green_as_camera=True))
     p.stdout.close()
     if p.wait():
         raise RuntimeError(f"ffmpeg couldn't read {path}")
@@ -172,7 +177,7 @@ def scan_video(path, fps, n_frames, package=None):
         small = cv2.resize(f, (96, 54), interpolation=cv2.INTER_AREA).astype(np.int16)
         st["diff"].append(float(np.abs(small - prev).mean()) if prev is not None else 0.0)
         prev = small
-        cam = classify(f, mid)
+        cam = classify(f, mid, green_as_camera=True)
         st["cam"].append(cam)
         o = brand_mask(f)                        # package overlays carry the accent (strip, icon ring, Follow body)
         st["o_left"].append(int(o[lb].sum()))
