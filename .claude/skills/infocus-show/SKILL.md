@@ -50,7 +50,7 @@ Everything about the cut lives in one file, `edl.json`. A re-cut or a fix means 
   ```
   export INFOCUS_PACKAGE="<brief.packageDir>" INFOCUS_JOB_DIR="<the job folder>"
   ```
-  For a themed show (see "Seasonal themes"), also `export INFOCUS_THEME=<theme>` (`thanksgiving` for a November show).
+  For a themed show (see "Seasonal themes"), also `export INFOCUS_THEME=<theme>`.
 - **Progress:** at the start of every step, run `python $S/progress.py <stage> "<short message>"`. The stages are `analyze`, `graphics`, `audio`, `build`, `render`, `check` and `fix`. The Portal shows this line to producers.
 - **Output:** finish every run by writing `<job folder>/result.json` (format below), even when things went wrong.
 - **Tools:** shell, reading and writing files, and viewing image files. Nothing else. On the machine: ffmpeg/ffprobe, whisper-cli with `~/.cache/whisper-cpp/ggml-large-v3-turbo.bin`, Node with Playwright's Chromium (it drives the package's `graphics.html`), and Swift for the Vision matte (compiled on first use).
@@ -225,23 +225,26 @@ A re-composited show cuts the anchors out of every take and seats them properly 
 
 A themed show uses a seasonal look for every graphic: intro, outro, name bars, dual thirds, announcement cards, the Follow card and the TV standby the cards start and end on. Layouts, sizes, timings and the TV screen positions are the same as the regular look. When the producer asks for re-compositing (see "Re-compositing onto the set"), a themed show's takes go onto the theme's sets.
 
-- **Themes:** `halloween` and `thanksgiving`.
+- **Themes:** `halloween`, `thanksgiving` and `christmas`.
 - **When:**
-  - **`thanksgiving`:** every show whose `brief.showDate` is in November, with no note needed. A November show uses the regular look only when `brief.note`, `brief.fix.text` or a house rule asks for it (for example "regular graphics" or "no Thanksgiving theme"), or another theme when one of them asks for that. Outside November, use Thanksgiving only when one of those asks for it ("Thanksgiving show", "use the Thanksgiving graphics").
-  - **`halloween`:** only when `brief.note`, `brief.fix.text` or a house rule says the show is themed, for example "Halloween show", "use the Halloween graphics" or "spooky theme".
+  - **By date, with no note needed:** run `python $S/common.py <brief.showDate>`. It prints the date's theme, or an empty line for the regular look:
+    - `halloween` from Oct 15 to Oct 31
+    - `thanksgiving` from Nov 1 to the day before Thanksgiving (the fourth Thursday of November)
+    - `christmas` from Thanksgiving to Dec 25
+  - **Unless asked otherwise:** when `brief.note`, `brief.fix.text` or a house rule asks for another look, use that instead: the regular look ("regular graphics", "no Christmas theme") or another theme ("Halloween show", "use the Thanksgiving graphics"), in or out of its season.
   - Nothing else turns a theme on: not costumes on air, not seasonal sets or graphics in the recording. Otherwise use the regular look.
 - **Set it everywhere:** `export INFOCUS_THEME=<theme>`, and `"theme": "<theme>"` at the top of `edl.json`. `render_graphics.mjs`, `verify_render.py` and the rest read it from there.
 - **Its files** (paths in `edl.json`):
 
-  | | Halloween | Thanksgiving |
-  |---|---|---|
-  | Intro (first segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Intro Thanksgiving 2026.mp4` |
-  | Outro (last segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Outro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Outro Thanksgiving 2026.mp4` |
-  | Follow card | `{PACKAGE}/Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov` | `{PACKAGE}/Themes/Thanksgiving/08 Follow InFocus/InFocus Follow Us (Thanksgiving).mov` |
+  | | Halloween | Thanksgiving | Christmas |
+  |---|---|---|---|
+  | Intro (first segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Intro Thanksgiving 2026.mp4` | `{PACKAGE}/Themes/Christmas/03 Intro & Outro/InFocus Intro Christmas 2026.mp4` |
+  | Outro (last segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Outro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Outro Thanksgiving 2026.mp4` | `{PACKAGE}/Themes/Christmas/03 Intro & Outro/InFocus Outro Christmas 2026.mp4` |
+  | Follow card | `{PACKAGE}/Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov` | `{PACKAGE}/Themes/Thanksgiving/08 Follow InFocus/InFocus Follow Us (Thanksgiving).mov` | `{PACKAGE}/Themes/Christmas/08 Follow InFocus/InFocus Follow Us (Christmas).mov` |
 
   Name bars, dual thirds and cards come from `render_graphics.mjs` in the theme's colors.
 - **If the theme's files aren't installed** (no `{PACKAGE}/Themes/<Name>/`, or `render_graphics.mjs` stops saying the package's graphics.html has no such theme): use the regular look: `unset INFOCUS_THEME`, set `"theme": ""` in `edl.json`, switch the intro, outro and Follow paths back to the regular files, and flag an `other` decision saying that theme's graphics aren't on this editing Mac.
-- **The recording:** a show may be filmed on the Halloween or Thanksgiving virtual sets, with that theme's graphics burned in, whatever look you output. The analysis recognises every installed set and finds pumpkin, cranberry and gold overlays as well as green ones, and every old graphic still gets covered.
+- **The recording:** a show may be filmed on the Halloween, Thanksgiving or Christmas virtual sets, with that theme's graphics burned in, whatever look you output. The analysis recognises every installed set and finds pumpkin, cranberry, gold and Christmas red overlays as well as green ones, and every old graphic still gets covered.
 
 ### 6. Graphics, mattes and audio
 Run `progress graphics`, then these two in parallel, in the background:

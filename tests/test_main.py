@@ -498,3 +498,33 @@ async def test_an_unhealthy_mac_rechecks_its_health_every_minute_not_every_ten()
     now[0] = 200
     await w.refresh_health()
     assert w._health_at == 61                                 # healthy again: back to every 10 minutes
+
+
+async def test_package_zips_are_checked_once_a_day_between_jobs():
+    now = [0.0]
+    calls = []
+
+    async def packages():
+        calls.append(now[0])
+        return "packages: up to date"
+
+    w = Worker(portal=FakePortal(), version="0.1.0", doctor=lambda: Health(True), run_job=None,
+               packages=packages, settings=FAST, clock=lambda: now[0])
+    await w.step()
+    await w.step()
+    now[0] = 86_399.0
+    await w.step()
+    now[0] = 86_400.0
+    await w.step()
+    assert calls == [0.0, 86_400.0]
+
+
+async def test_a_failing_package_check_does_not_stop_the_loop():
+    async def packages():
+        raise RuntimeError("boom")
+
+    portal = FakePortal()
+    w = Worker(portal=portal, version="0.1.0", doctor=lambda: Health(True), run_job=None,
+               packages=packages, settings=FAST)
+    assert not await w.step()
+    assert portal.claim_calls == 1

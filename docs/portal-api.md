@@ -16,6 +16,7 @@ The editor talks to two services:
 | `heartbeat` | `{ version: string≤40, busy: boolean, health: { ok: boolean, problems: string[] (≤20, each ≤300) }, publicKey: string (base64 X25519), backends: [{ name: "claude"\|"codex"\|"grok", connected: boolean, detail: string≤200 }], credentialAcks: [{ id, ok: boolean, error?: string≤300 }] (≤10) }` | `{ cancelJobIds: string[], targetVersion: string \| null, credentials: [{ id, backend, ciphertext }] }` |
 | `claim` | `{}` | `{ job: null }`, or a claim (below) |
 | `graphics` | `{}` | `{ version: <40-hex commit>, url, size, sha256: string \| null }`, or `{ version: null, reason }` (below) |
+| `packages` | `{}` | `{ zips: [{ theme: "" \| "<name>", name, size, modifiedAt, url }] }` (below) |
 | `jobs/<id>/progress` | `{ stage: Stage, message: string≤300 }` | `{ cancel: boolean }` |
 | `jobs/<id>/upload-targets` | `{}` | `{ driveBaseUrl, video: { path, token }, poster: { path, token }, log: { path, token } }` |
 | `jobs/<id>/complete` | `{ outputNasPath, decisions, checks, needsReview, costUsd, agentSessionId, reply?, debugLogPath? }` | `{ ok: true }` |
@@ -27,7 +28,13 @@ The editor talks to two services:
 
 The package's `_Working Files/Graphics Source` (the HTML templates that render name bars, cards and the Follow card) follows `main` of the private infocus-graphics repo. Its `graphics-source` workflow publishes one tarball per commit on the `graphics-source` release. The Portal looks up the newest one with its read-only `SHOW_EDITOR_GRAPHICS_TOKEN` and returns GitHub's signed download link, which works for a few minutes; the token never leaves the Portal.
 
-Before every job (`editor/graphics.py`) the editor calls `graphics`. When `version` differs from `Graphics Source/.graphics-version`, it downloads the tarball, checks `sha256`, keeps its `node_modules` (or runs `npm ci` when `package-lock.json` changed) and swaps the folder in whole. A Portal without the route (404), `version: null`, or any failure keeps the installed copy and the job goes on. The rest of the package (intro, outro, sets, themes) still comes from the Setup app.
+Before every job (`editor/graphics.py`) the editor calls `graphics`. When `version` differs from `Graphics Source/.graphics-version`, it downloads the tarball, checks `sha256`, keeps its `node_modules` (or runs `npm ci` when `package-lock.json` changed) and swaps the folder in whole. A Portal without the route (404), `version: null`, or any failure keeps the installed copy and the job goes on. The rest of the package comes from the package zips (below).
+
+### Package zips
+
+The intro, outro, sets, Follow card and TV standby of each look come from the zips in Drive's `All Resources/Graphic Files`: `InFocus 2026 Package.zip` (the regular look, `theme: ""`) and `InFocus <Name> 2026 Package.zip` per seasonal theme. The Portal lists them (only the newest year of each) with 6-hour read links; Drive lets the service API read that folder but never write to it (`GRAPHICS_ROOT`).
+
+Once a day, between jobs (`editor/packages.py`, and at every start), the editor calls `packages`. A zip whose `size` and `modifiedAt` differ from the `.package-version` it installed last is downloaded, and the folders the skill reads (`README.md`, `01 Logos`, `02 Fonts`, `03 Intro & Outro`, `04 Virtual Sets`, `08 Follow InFocus`, `09 TV Standby`) are swapped in: the whole `Themes/<Name>/` folder for a theme, those folders at the package root for the regular look (never `_Working Files/` or `Themes/`). A zip without `03 Intro & Outro` and `04 Virtual Sets` is refused. Any failure keeps what's installed. To refresh a look, upload its new zip over the old one.
 
 ### Claim
 

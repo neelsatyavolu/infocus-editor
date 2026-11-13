@@ -38,6 +38,7 @@ def build_worker():
     from editor.keychain import Keychain
     from editor.link import TOKEN_ITEM, device_name
     from editor.logout_guard import logout_guard
+    from editor.packages import sync_packages
     from editor.pairing import Pairing
     from editor.portal import PortalClient
     from editor.runner import RunnerDeps, run_job
@@ -50,7 +51,8 @@ def build_worker():
     pool = _pool(cfg, keychain)
     pairing = Pairing(keychain, pool, cfg.codex_home, cfg.grok_home)
     portal = PortalClient(cfg.portal_url, lambda: keychain.get(TOKEN_ITEM))
-    deps = RunnerDeps(cfg=cfg, portal=portal, drive=DriveClient(), pool=pool)
+    drive = DriveClient()
+    deps = RunnerDeps(cfg=cfg, portal=portal, drive=drive, pool=pool)
     probes = Probes(connected_backends=lambda: [b.name for b in pool.connected()],
                     linked=lambda: bool(keychain.get(TOKEN_ITEM)))
     updater = None
@@ -65,7 +67,8 @@ def build_worker():
                   before_exit=lambda: reload_if_changed(cfg.data_dir),
                   session_guard=partial(logout_guard, cfg.data_dir, cfg.machine_kind),
                   shell=RemoteShell(cfg.machine_kind, lambda: keychain.get(TOKEN_ITEM)),
-                  housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days))
+                  housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days),
+                  packages=lambda: sync_packages(portal, drive, cfg.package_dir))
 
 
 def _doctor_health() -> tuple[Health, tuple[str, ...]]:

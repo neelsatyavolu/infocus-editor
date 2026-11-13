@@ -34,6 +34,7 @@ class LoopSettings:
     doctor_s: float = 600.0
     unhealthy_doctor_s: float = 60.0  # while a problem blocks jobs (e.g. just plugged in), check again soon
     housekeeping_s: float = 3600.0
+    packages_s: float = 86_400.0  # how often the package zips on Drive are checked for changes
     update_s: float = CHECK_EVERY_S
 
 
@@ -41,6 +42,7 @@ class Worker:
     def __init__(self, *, portal, version: str, doctor: Callable[[], Health],
                  run_job: Callable[[Claim, asyncio.Event], Awaitable[Any]],
                  housekeeping: Callable[[], None] = lambda: None,
+                 packages: Callable[[], Awaitable[str]] | None = None,
                  update: Callable[[str | None, tuple[str, ...]], UpdateResult] | None = None,
                  pairing: Any = None, backend_statuses: Callable[[], list[Any]] = lambda: [],
                  set_agent_order: Callable[[tuple[str, ...]], None] = lambda order: None,
@@ -54,6 +56,7 @@ class Worker:
         self._doctor = doctor
         self._run_job = run_job
         self._housekeeping = housekeeping
+        self._packages = packages
         self._update = update
         self._pairing = pairing
         self._backend_statuses = backend_statuses
@@ -73,6 +76,7 @@ class Worker:
         self.health = Health(False, ("Starting up",))
         self._health_at = float("-inf")
         self._housekeeping_at = float("-inf")
+        self._packages_at = float("-inf")
         self._update_at = float("-inf")
         self.busy = False
         self.current: tuple[str, asyncio.Event] | None = None
@@ -291,6 +295,16 @@ class Worker:
         if result.status in ("current", "rolled_back", "refused"):
             self.update_problem = result.problem
 
+    async def _maybe_sync_packages(self) -> None:
+        """Between jobs, once a day: refresh the package's looks from the zips on Drive (editor/packages.py)."""
+        if self._packages is None or self._clock() - self._packages_at < self._s.packages_s:
+            return
+        self._packages_at = self._clock()
+        try:
+            log.info("%s", await self._packages())
+        except Exception as e:  # noqa: BLE001 - the installed looks still work
+            log.warning("package check failed: %s", e)
+
     async def step(self) -> bool:
         """One pass of the claim loop. Returns True if a job ran."""
         if self.unlinked:
@@ -301,6 +315,7 @@ class Worker:
             self._housekeeping_at = self._clock()
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(self._housekeeping)
+        await self._maybe_sync_packages()
         health = await self.refresh_health()
         if not health.ok:
             return False
