@@ -9,9 +9,11 @@ from typing import Any, Awaitable, Callable, Mapping, Sequence
 import httpx
 
 from editor.graphics import GraphicsRelease
+from editor.packages import PackageZip
 
 VERSION_RE = re.compile(r"^[0-9a-f]{40}$")  # a graphics commit
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+THEME_RE = re.compile(r"^[a-z]*$")  # "" is the regular look
 STAGES = ("download", "analyze", "graphics", "audio", "build", "render", "check", "upload", "fix")
 RETRIES = 3
 BACKOFF_S = (1.0, 3.0, 9.0)
@@ -211,6 +213,24 @@ class PortalClient:
         size, sha = data.get("size"), data.get("sha256")
         return GraphicsRelease(version=version, url=str(data["url"]), size=size if isinstance(size, int) else None,
                                sha256=str(sha) if isinstance(sha, str) and SHA256_RE.match(sha) else None)
+
+    async def packages(self) -> list[PackageZip] | None:
+        """The package zips on Drive, or None when the Portal predates the route."""
+        try:
+            data = await self._post("packages", {}) or {}
+        except PortalError as e:
+            if e.status == 404:
+                return None
+            raise
+        zips = []
+        for z in data.get("zips") or []:
+            theme, size, url = z.get("theme"), z.get("size"), z.get("url")
+            if not isinstance(theme, str) or not THEME_RE.match(theme) or not isinstance(size, int) \
+                    or not isinstance(url, str) or not url.startswith("https://"):
+                continue
+            zips.append(PackageZip(theme=theme, name=str(z.get("name") or ""), size=size,
+                                   modified_at=str(z.get("modifiedAt") or ""), url=url))
+        return zips
 
     async def progress(self, job_id: str, stage: str, message: str) -> bool:
         if stage not in STAGES:
