@@ -264,10 +264,10 @@ Run `progress audio`, then master the audio (about 1 min). This makes the finish
 ```
 uv run --with numpy python $S/master_audio.py <showDir>
 ```
-- **Anchors:** dynamic normalization evens out a quiet mic, even inside a two-shot. Then a gentle voice compressor (so a dynamic mic and a compressed one end up equally loud), a trim to the same loudness (−16 LUFS) and a −6 dBFS limiter. Anchor segments must stay within 3 dB of each other (`verify_render.py` rule 6). Leave `dialogue_lufs` at its default unless a house rule says otherwise.
+- **Anchors:** clipped recordings are declipped first (`adeclip`, only when the segment has flat tops). Then dynamic normalization evens out a quiet mic, even inside a two-shot. Then a gentle voice compressor (so a dynamic mic and a compressed one end up equally loud), a trim to the same loudness (−16 LUFS) and a −6 dBFS limiter. Anchor segments must stay within 3 dB of each other (`verify_render.py` rule 6). Leave `dialogue_lufs` at its default unless a house rule says otherwise.
 - **Packages** are loudness-matched. **Intro and outro** get a static gain.
 - **Then every segment** gets a final gain so its true peak sits at exactly −6 dBFS. That's the producer's standard, packages and throws included.
-- Check `Audio/levels.json`. A segment with `"reached": false` couldn't reach −6 within +6 dB (near silence). Flag it.
+- Check `Audio/levels.json`. A segment with `"reached": false` couldn't reach −6 within +6 dB (near silence). Flag it. A `clipped_pct` over 1 means the anchors' mic gain was too hot at the board. It was declipped, but tell the producer to turn the gain down.
 
 ### 7. Build and render (`progress render`, about 2 min for an 8-minute show)
 ```

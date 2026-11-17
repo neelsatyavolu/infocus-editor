@@ -21,6 +21,14 @@ def speech_like(sec, level, rng):
     return np.clip(rng.standard_normal(n), -6, 6) / 6 * gate * level
 
 
+def voiced(sec, level):
+    """A 150 Hz voice with harmonics, syllable-gated: clips in runs of flat samples, like a hot mic does."""
+    t = np.arange(int(sec * SR)) / SR
+    gate = np.convolve((np.sin(2 * np.pi * 3 * t) > 0).astype(float), np.ones(480) / 480, "same")
+    tone = sum(a * np.sin(2 * np.pi * 150 * k * t + k) for k, a in [(1, 0.6), (2, 0.3), (3, 0.2), (5, 0.1)])
+    return tone * gate * level
+
+
 def stereo(x):
     return np.stack([x, x], 1).astype(np.float32)
 
@@ -35,7 +43,8 @@ def true_peak(path):
 def mastered(tmp_path_factory):
     d = tmp_path_factory.mktemp("show")
     rng = np.random.default_rng(7)
-    src = np.concatenate([speech_like(10, 0.5, rng), speech_like(6, 0.05, rng)])   # open, then a quiet throw
+    hot = np.clip(voiced(4, 1.6), -1, 1)                                            # mic gain far too hot: flat tops
+    src = np.concatenate([speech_like(10, 0.5, rng), speech_like(6, 0.05, rng), hot])  # open, a quiet throw, a hot one
     sf.write(d / "source.wav", stereo(src), SR)
     sf.write(d / "pkg.wav", stereo(speech_like(8, 0.3, rng)), SR)
     t = np.arange(int(4 * SR)) / SR
@@ -47,6 +56,7 @@ def mastered(tmp_path_factory):
                {"id": "intro", "kind": "file", "path": str(d / "intro.wav")},
                {"id": "open", "kind": "source", "in": 0, "out": 599},
                {"id": "throw", "kind": "source", "in": 600, "out": 959},
+               {"id": "hot", "kind": "source", "in": 960, "out": 1199},
                {"id": "pkg", "kind": "file", "path": str(d / "pkg.wav"), "audio": "match"},
                {"id": "hiss", "kind": "file", "path": str(d / "hiss.wav")},
                {"id": "silent_pkg", "kind": "file", "path": str(d / "silent_pkg.wav"), "audio": "match"},
@@ -85,3 +95,25 @@ def test_near_silent_segment_is_reported_not_boosted_past_6_db(mastered, seg):
     assert levels[seg]["lift_db"] <= 6.0
     assert true_peak(d / f"Audio/{seg}.wav") < -40
     assert re.search(rf"{seg}.*can't reach", out)
+
+
+def test_clipped_anchor_audio_is_declipped_reported_and_still_at_minus_6(mastered):
+    d, levels, out = mastered
+    assert levels["hot"]["clipped_pct"] > 1.0
+    assert levels["hot"]["declipped"] is True
+    assert true_peak(d / "Audio/hot.wav") == pytest.approx(-6.0, abs=0.15)
+    assert re.search(r"hot.*clipped.*mic gain", out)
+
+
+def test_flat_tops_are_rebuilt(mastered):
+    d, levels, _ = mastered
+    x = sf.read(d / "Audio/hot.wav", dtype="float32")[0][:, 0]
+    top = np.abs(x) >= 0.999 * np.abs(x).max()
+    assert (top[1:] & top[:-1]).mean() * 100 < levels["hot"]["clipped_pct"] / 4
+
+
+def test_clean_anchor_audio_is_left_alone(mastered):
+    _, levels, _ = mastered
+    for seg in ("open", "throw"):
+        assert levels[seg]["clipped_pct"] < 0.05
+        assert levels[seg]["declipped"] is False
