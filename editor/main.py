@@ -38,7 +38,8 @@ def build_worker():
     from editor.keychain import Keychain
     from editor.link import TOKEN_ITEM, device_name
     from editor.logout_guard import logout_guard
-    from editor.packages import sync_packages
+    from editor.intros import sync_looks
+    from editor.packages import installed_intros
     from editor.pairing import Pairing
     from editor.portal import PortalClient
     from editor.runner import RunnerDeps, run_job
@@ -68,7 +69,8 @@ def build_worker():
                   session_guard=partial(logout_guard, cfg.data_dir, cfg.machine_kind),
                   shell=RemoteShell(cfg.machine_kind, lambda: keychain.get(TOKEN_ITEM)),
                   housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days),
-                  packages=lambda: sync_packages(portal, drive, cfg.package_dir))
+                  packages=partial(sync_looks, portal, drive, cfg.package_dir),
+                  intros=lambda: installed_intros(cfg.package_dir))
 
 
 def _doctor_health() -> tuple[Health, tuple[str, ...]]:

@@ -57,6 +57,31 @@ def installed_version(package_dir: Path, theme: str) -> str | None:
         return None
 
 
+INTRO_FOLDER = "03 Intro & Outro"
+VIDEO_SUFFIXES = (".mp4", ".mov")
+
+
+def _intro_files(folder: Path) -> list[str]:
+    try:
+        names = [f.name for f in folder.iterdir() if f.is_file()]
+    except OSError:
+        return []
+    return sorted(n for n in names if not n.startswith(".") and "intro" in n.lower()
+                  and n.lower().endswith(VIDEO_SUFFIXES))
+
+
+def installed_intros(package_dir: Path) -> dict[str, list[str]]:
+    """The intro files each installed look has ({"": [...], "christmas": [...]}), sent with the heartbeat so the
+    Portal can offer them in its intro picker. Looks without any intro are left out."""
+    looks = {"": package_dir}
+    try:
+        looks.update({d.name.lower(): d for d in (package_dir / "Themes").iterdir() if d.is_dir()})
+    except OSError:
+        pass
+    found = {theme: _intro_files(folder / INTRO_FOLDER) for theme, folder in looks.items()}
+    return {theme: names for theme, names in found.items() if names}
+
+
 async def sync_packages(portal: Any, drive: Any, package_dir: Path) -> str:
     """Bring every look up to date with Drive; returns what happened, for the log. Never raises."""
     try:

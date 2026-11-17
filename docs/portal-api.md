@@ -16,6 +16,7 @@ The editor talks to two services:
 | `heartbeat` | `{ version: string≤40, busy: boolean, health: { ok: boolean, problems: string[] (≤20, each ≤300) }, publicKey: string (base64 X25519), backends: [{ name: "claude"\|"codex"\|"grok", connected: boolean, detail: string≤200 }], credentialAcks: [{ id, ok: boolean, error?: string≤300 }] (≤10) }` | `{ cancelJobIds: string[], targetVersion: string \| null, credentials: [{ id, backend, ciphertext }] }` |
 | `claim` | `{}` | `{ job: null }`, or a claim (below) |
 | `graphics` | `{}` | `{ version: <40-hex commit>, url, size, sha256: string \| null }`, or `{ version: null, reason }` (below) |
+| `intros` | `{}` | `{ version: <40-hex commit>, url, size, sha256: string \| null }`, or `{ version: null, reason }` (below) |
 | `packages` | `{}` | `{ zips: [{ theme: "" \| "<name>", name, size, modifiedAt, url }] }` (below) |
 | `jobs/<id>/progress` | `{ stage: Stage, message: string≤300 }` | `{ cancel: boolean }` |
 | `jobs/<id>/upload-targets` | `{}` | `{ driveBaseUrl, video: { path, token }, poster: { path, token }, log: { path, token } }` |
@@ -35,6 +36,12 @@ Before every job (`editor/graphics.py`) the editor calls `graphics`. When `versi
 The intro, outro, sets, Follow card and TV standby of each look come from the zips in Drive's `All Resources/Graphic Files`: `InFocus 2026 Package.zip` (the regular look, `theme: ""`) and `InFocus <Name> 2026 Package.zip` per seasonal theme. The Portal lists them (only the newest year of each) with 6-hour read links; Drive lets the service API read that folder but never write to it (`GRAPHICS_ROOT`).
 
 Once a day, between jobs (`editor/packages.py`, and at every start), the editor calls `packages`. A zip whose `size` and `modifiedAt` differ from the `.package-version` it installed last is downloaded, and the folders the skill reads (`README.md`, `01 Logos`, `02 Fonts`, `03 Intro & Outro`, `04 Virtual Sets`, `08 Follow InFocus`, `09 TV Standby`) are swapped in: the whole `Themes/<Name>/` folder for a theme, those folders at the package root for the regular look (never `_Working Files/` or `Themes/`). A zip without `03 Intro & Outro` and `04 Virtual Sets` is refused. Any failure keeps what's installed. To refresh a look, upload its new zip over the old one.
+
+### Intros from GitHub
+
+Every look's intro videos also come from the infocus-graphics repo, so adding or revising an intro is a commit there (`InFocus [<Theme> ]2026 Package/03 Intro & Outro/`, any `.mp4`/`.mov` with "Intro" in its name). Its `intros` workflow publishes one tarball per commit on the `intros` release (`<look>/<file>`, look `regular` or the theme in lower case), and the Portal hands out the newest one the same way as Graphics Source.
+
+Right after the package zips (same daily check, `editor/intros.py`), the editor calls `intros`. A new `version` is downloaded, checked against `sha256` and unpacked into `<package>/_Intros/`. Then every intro is copied into its look's `03 Intro & Outro` folder (only for looks that are installed). This copy runs every time, so a zip that replaced a look's folder gets the repo's intros back straight away. An intro the repo dropped is removed if the editor put it there; files that also came from a zip stay. The heartbeat's `intros` list (below) is what the Portal's intro picker offers.
 
 ### Claim
 
@@ -61,6 +68,8 @@ Once a day, between jobs (`editor/packages.py`, and at every start), the editor 
     "packages": [{ "title": "…", "nasPath": "Package Storage/…/x.mp4", "toss": "…" }],  // queue order; toss may be null
     "note": null,                 // the producer's instructions (Start or Redo), or null
     "recomposite": false,         // "Re-set the anchors on the virtual set" ticked at Start or Redo (optional; missing = false)
+    "intros": { "christmas": "InFocus Intro Christmas 2026 - Collage (new music).mp4" },
+                                  // the settings' intro pick per look ("" = regular); optional, missing = the usual intros
     "outputNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.mp4",
     "posterNasPath": "Package Storage/Shows/2026-10-21/InFocus Show 2026-10-21-<stamp>.poster.jpg"
   },
@@ -161,12 +170,13 @@ The setup app links the Mac to the Portal with a device-code flow, like signing 
 
 Everything after setup is managed from the Portal panel by producers. Nothing is changed on the Mac by hand.
 
-- **Settings** live in one `ShowEditorSettings` row: `autoStart`, `autoPublish`, `targetVersion`, `agentOrder` (a subset and order of `["claude","codex","grok"]`), `houseRules` (text ≤ 20000), `updatedById` and `updatedAt`.
+- **Settings** live in one `ShowEditorSettings` row: `autoStart`, `autoPublish`, `targetVersion`, `agentOrder` (a subset and order of `["claude","codex","grok"]`), `houseRules` (text ≤ 20000), `intros` (`{ "<theme>" \| "": "<intro file name>" }`, the intro picked for each look), `updatedById` and `updatedAt`.
   - Change them with `POST /api/show-roles/edits { action: "settings", …fields }`.
   - The env vars `SHOW_EDITOR_AUTO_START`, `SHOW_EDITOR_AUTO_PUBLISH` and `SHOW_EDITOR_TARGET_VERSION` are used only when the matching setting is null.
 - **The heartbeat response adds:**
   - `settings: { agentOrder: string[], targetVersion: string | null }`. `targetVersion` also stays top-level.
   - `commands: [{ id, kind: "doctor" | "update" | "restart" | "repair" | "logs" | "always-on" | "normal-power" }]` (doctor, logs and the two power commands run even mid-job), which producers queue with `POST /api/show-roles/edits { action: "command", kind }`.
+- **The heartbeat body adds** `intros: { "" | "<theme>": string[] }`: the intro files installed in each look's `03 Intro & Outro` folder (only looks that have one). The Portal keeps the active Mac's list and offers it in the intro picker.
 - **The heartbeat body adds** `commandAcks: [{ id, ok: boolean, output?: string≤4000 }]` (≤10).
   - For `logs`, `output` is the last 100 log lines, with secrets never included. For `doctor`, it's the health report.
   - The panel shows each command's result.

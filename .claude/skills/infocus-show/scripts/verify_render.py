@@ -41,7 +41,7 @@ from analyze import SH, SW, brand_mask, classify, middle_set  # noqa: E402
 from check_render import loudness_rows  # noqa: E402
 from common import (FOLLOW_BOX, H, NAMEBAR_BAND, W, expand, fps_value, is_fixup, is_multicam,  # noqa: E402
                     load_edl, overlay_file, package_dir, probe, recomposite_on, recomposited_takes, recording_of,
-                    recordings, seek_args, segment_source, stale_takes, THEMES, theme_name)
+                    picked_intro, recordings, seek_args, segment_source, stale_takes, THEMES, theme_name)
 
 RULES = {1: "switcher_frames", 2: "cover_span", 3: "cover_shape", 4: "uncovered", 5: "intro_outro", 6: "audio",
          7: "basics", 8: "side_set", 9: "shot_length", 10: "av_sync", 11: "recording_range", 12: "set"}
@@ -580,7 +580,8 @@ def rule_intro_outro(edl, analysis=None):
     failures = []
     segs = edl["segments"]
 
-    intro, outro = (os.path.basename(THEMES[theme_name(edl)][k]) for k in ("intro", "outro"))
+    intro = os.path.basename(picked_intro(edl))
+    outro = os.path.basename(THEMES[theme_name(edl)]["outro"])
 
     def is_file(seg, name):
         return seg and seg["kind"] == "file" and os.path.basename(seg.get("path", "")) == name

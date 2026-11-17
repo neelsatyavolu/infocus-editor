@@ -102,7 +102,22 @@ def build_brief(cfg: Config, claim: Claim, paths: JobPaths, recordings: Path, so
         "poster": str(paths.poster(claim.show_date, claim.version)),
         "packageDir": str(cfg.package_dir),
         "houseRules": str(paths.house_rules),
+        "intros": picked_intros(b.get("intros")),
     }
+
+
+THEME_RE = re.compile(r"^[a-z]*$")  # "" is the regular look
+
+
+def picked_intros(raw: Any) -> dict[str, str]:
+    """brief.intros: the intro file the producers picked on the Portal for each look ({"christmas": "<file name>"}).
+    Only plain video file names get through; the skill looks for them in the look's "03 Intro & Outro" folder."""
+    if not isinstance(raw, dict):
+        return {}
+    return {theme: name for theme, name in raw.items()
+            if isinstance(theme, str) and THEME_RE.match(theme) and isinstance(name, str) and 0 < len(name) <= 200
+            and "/" not in name and "\\" not in name and not name.startswith(".")
+            and name.lower().endswith((".mp4", ".mov"))}
 
 
 MAX_HOUSE_RULES = 20_000

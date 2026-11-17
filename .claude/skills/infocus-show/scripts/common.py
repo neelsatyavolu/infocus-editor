@@ -108,10 +108,30 @@ def theme_name(edl=None):
     return name
 
 
+def picked_intro(edl=None, package=None):
+    """The theme's intro, relative to the package: the producers' pick on the Portal (edl.json "intros", copied from
+    brief.intros, e.g. {"christmas": "InFocus Intro Christmas 2026 - Collage (new music).mp4"}) when that file is in
+    the theme's intro folder, else the theme's usual intro."""
+    edl = edl or {}
+    theme = theme_name(edl)
+    default = THEMES[theme]["intro"]
+    pick = (edl.get("intros") or {}).get(theme)
+    if not isinstance(pick, str) or not pick or pick != os.path.basename(pick) or pick.startswith("."):
+        return default
+    rel = os.path.join(os.path.dirname(default), pick)
+    try:
+        root = package or package_dir(edl)
+    except RuntimeError:
+        return default
+    return rel if os.path.isfile(os.path.join(root, rel)) else default
+
+
 def theme_file(key, edl=None, package=None):
     """Absolute path of one of the theme's package files ("intro", "outro", "follow", "standby", "left", "middle",
-    "right")."""
-    return os.path.join(package or package_dir(edl), THEMES[theme_name(edl)][key])
+    "right"). The intro is the producers' pick when they made one (picked_intro)."""
+    root = package or package_dir(edl)
+    rel = picked_intro(edl, root) if key == "intro" else THEMES[theme_name(edl)][key]
+    return os.path.join(root, rel)
 
 
 def seek_args(frame, fps):
@@ -294,5 +314,9 @@ def ensure_tool(name):
 
 
 if __name__ == "__main__":
-    # python common.py <showDate>: prints the date's theme (an empty line for the regular look).
-    print(season_theme(sys.argv[1]))
+    if sys.argv[1] == "intro":
+        # python common.py intro <showDir>: prints the intro path for edl.json (theme and "intros" from edl.json).
+        print("{PACKAGE}/" + picked_intro(load_edl(sys.argv[2])))
+    else:
+        # python common.py <showDate>: prints the date's theme (an empty line for the regular look).
+        print(season_theme(sys.argv[1]))

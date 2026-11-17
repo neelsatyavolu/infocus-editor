@@ -47,6 +47,7 @@ class Worker:
                  pairing: Any = None, backend_statuses: Callable[[], list[Any]] = lambda: [],
                  set_agent_order: Callable[[tuple[str, ...]], None] = lambda order: None,
                  commands: Any = None, machine: dict[str, str] | None = None,
+                 intros: Callable[[], dict[str, list[str]]] | None = None,
                  before_exit: Callable[[], None] = lambda: None,
                  session_guard: Callable = contextlib.nullcontext,
                  shell: Callable[[str, str], Awaitable[tuple[bool, str]]] | None = None,
@@ -63,6 +64,7 @@ class Worker:
         self._set_agent_order = set_agent_order
         self._commands = commands
         self._machine = machine
+        self._intros = intros
         self._before_exit = before_exit
         self._session_guard = session_guard
         self._guard_process = None
@@ -137,7 +139,7 @@ class Worker:
                 version=self._version, busy=self.busy, health=self.reported_health(),
                 public_key=self._pairing.public_key if self._pairing else None,
                 backends=[s.as_json() for s in self._backend_statuses()], acks=acks,
-                command_acks=command_acks, machine=self._machine)
+                command_acks=command_acks, machine=self._machine, intros=self._installed_intros())
         except AuthError:
             self._acks, self._command_acks = acks + self._acks, command_acks + self._command_acks
             if not self.unlinked:
@@ -174,6 +176,16 @@ class Worker:
                 await self._run_immediate(command)
             else:
                 self._queued.append(command)
+
+    def _installed_intros(self) -> dict[str, list[str]] | None:
+        """The package's intro files for the Portal's picker; None (nothing sent) when unknown."""
+        if self._intros is None:
+            return None
+        try:
+            return self._intros()
+        except Exception as e:  # noqa: BLE001 - the heartbeat matters more than the picker
+            log.warning("couldn't list the package's intros: %s", e)
+            return None
 
     async def _install_credentials(self, items) -> None:
         from editor.pairing import parse_credentials

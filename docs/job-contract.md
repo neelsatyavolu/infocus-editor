@@ -51,13 +51,15 @@ The worker (`editor/`) and the autonomous skill (`.claude/skills/infocus-show/`)
   "output": "<job_dir>/out/InFocus Show 2026-10-21 v1.mp4",
   "poster": "<job_dir>/out/InFocus Show 2026-10-21 v1.poster.jpg",
   "packageDir": "<the InFocus 2026 Package folder>",
-  "houseRules": "<data_dir>/house-rules.md"
+  "houseRules": "<data_dir>/house-rules.md",
+  "intros": { "christmas": "InFocus Intro Christmas 2026 - Collage (new music).mp4" }  // the Portal's intro pick per look ("" = regular); {} when none
 }
 ```
 
 - **Output names:** every version gets new output names, so a reviewer never sees a cached older file.
 - **Paths:** all paths are absolute.
 - **Seasonal themes:** `packageDir/Themes/<Name>/` holds a theme's intro, outro, Follow card, TV standby and sets (`Themes/Halloween/` for `halloween`, `Themes/Thanksgiving/` for `thanksgiving`, `Themes/Christmas/` for `christmas`), and the package's `graphics.html` renders its name bars and cards with `?theme=<name>`. The Setup app copies `Themes/` when its package folder has one, and the editor refreshes every look from the package zips on Drive once a day (docs/portal-api.md, "Package zips"). The skill picks the theme by the show date (Halloween Oct 15–31, Thanksgiving Nov 1 to the day before Thanksgiving, Christmas Thanksgiving to Dec 25, `common.season_theme`) unless the producer's note or a house rule asks for another look (SKILL.md "Seasonal themes").
+- **Intro picks:** `intros` names the intro file producers picked on the Portal for a look. The file sits in that look's `03 Intro & Outro` folder. The skill uses it instead of the look's usual intro when it's installed (`common.picked_intro`, `python scripts/common.py intro <showDir>`), and verify rule 5 wants it.
 
 ## status.json
 
