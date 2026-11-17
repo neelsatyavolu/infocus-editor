@@ -64,11 +64,12 @@ class FakePortal:
         self.cancel_ids = list(cancel_ids)
 
     async def heartbeat(self, *, version, busy, health, public_key=None, backends=(), acks=(), command_acks=(),
-                        machine=None):
+                        machine=None, intros=None):
         self.heartbeats.append(busy)
         self.healths.append(health)
         self.bodies.append({"publicKey": public_key, "backends": list(backends), "acks": list(acks),
-                            "commandAcks": list(command_acks), "machine": machine})
+                            "commandAcks": list(command_acks), "machine": machine,
+                            "intros": intros})
         if self.unauthorized:
             raise AuthError("401")
         creds, self.credentials = tuple(self.credentials), []
@@ -528,3 +529,21 @@ async def test_a_failing_package_check_does_not_stop_the_loop():
                packages=packages, settings=FAST)
     assert not await w.step()
     assert portal.claim_calls == 1
+
+
+async def test_heartbeat_reports_the_installed_intros():
+    portal = FakePortal()
+    w = worker(portal, lambda c, e: None, intros=lambda: {"christmas": ["A.mp4"]})
+    await w.heartbeat_once()
+    assert portal.bodies[-1]["intros"] == {"christmas": ["A.mp4"]}
+
+
+async def test_a_failing_intro_listing_still_beats():
+    portal = FakePortal()
+
+    def broken():
+        raise OSError("disk gone")
+
+    w = worker(portal, lambda c, e: None, intros=broken)
+    await w.heartbeat_once()
+    assert portal.bodies[-1]["intros"] is None

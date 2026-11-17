@@ -793,3 +793,15 @@ def test_a_chapter_named_by_the_skill_wins(tmp_path):
     write_json_atomic(tmp_path / "layout.json", {"fps": "60000/1001", "segments": [
         {"id": "open", "rec_in": 0}, {"id": "sports", "rec_in": 1200}]})
     assert [c["title"] for c in edl_chapters(tmp_path / "edl.json", tmp_path / "layout.json", [])] == ["Good morning, Paly", "Sports"]
+
+
+async def test_picked_intros_reach_the_brief_and_unsafe_names_are_dropped(tmp_path):
+    claim = edit_claim()
+    intros = {"christmas": "InFocus Intro Christmas 2026 - Collage (new music).mp4", "": "../../etc/passwd",
+              "halloween": "notes.txt", "Bad Theme": "x.mp4", "thanksgiving": 5}
+    claim = Claim(claim.kind, claim.job_id, claim.show_date, claim.version, {**claim.brief, "intros": intros},
+                  claim.downloads)
+    deps = deps_for(tmp_path, FakeAgent(finish))
+    await run_job(deps, claim)
+    written = json.loads((deps.cfg.work_root / f"{DATE}-j1" / "brief.json").read_text())
+    assert written["intros"] == {"christmas": "InFocus Intro Christmas 2026 - Collage (new music).mp4"}

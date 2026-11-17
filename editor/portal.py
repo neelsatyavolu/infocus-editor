@@ -173,7 +173,8 @@ class PortalClient:
                         backends: Sequence[Mapping[str, Any]] = (),
                         acks: Sequence[Mapping[str, Any]] = (),
                         command_acks: Sequence[Mapping[str, Any]] = (),
-                        machine: Mapping[str, str] | None = None) -> HeartbeatReply:
+                        machine: Mapping[str, str] | None = None,
+                        intros: Mapping[str, Sequence[str]] | None = None) -> HeartbeatReply:
         body: dict[str, Any] = {"version": version[:40], "busy": busy, "health": health.as_json(),
                                 "backends": list(backends), "credentialAcks": list(acks)[:10],
                                 "commandAcks": list(command_acks)[:10]}
@@ -181,6 +182,8 @@ class PortalClient:
             body["publicKey"] = public_key
         if machine:
             body["machine"] = {"name": str(machine.get("name") or "")[:80], "kind": machine.get("kind", "dedicated")}
+        if intros is not None:
+            body["intros"] = {theme: list(names) for theme, names in intros.items()}
         data = await self._post("heartbeat", body) or {}
         settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
         target = settings.get("targetVersion") or data.get("targetVersion")
@@ -201,8 +204,15 @@ class PortalClient:
 
     async def graphics(self) -> GraphicsRelease | None:
         """The newest Graphics Source tarball, or None when there's none (or the Portal predates the route)."""
+        return await self._release("graphics")
+
+    async def intros(self) -> GraphicsRelease | None:
+        """The newest intros tarball (every look's intro videos), or None when there's none (or no route)."""
+        return await self._release("intros")
+
+    async def _release(self, route: str) -> GraphicsRelease | None:
         try:
-            data = await self._post("graphics", {}) or {}
+            data = await self._post(route, {}) or {}
         except PortalError as e:
             if e.status == 404:
                 return None

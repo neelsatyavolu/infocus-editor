@@ -5,7 +5,8 @@ import httpx
 import pytest
 
 from editor import packages
-from editor.packages import VERSION_FILE, PackageZip, install_zip, recover, sync_packages, target_dir
+from editor.packages import (VERSION_FILE, PackageZip, install_zip, installed_intros, recover, sync_packages,
+                             target_dir)
 from editor.portal import PortalClient
 
 PARTS = ("01 Logos/logo.png", "02 Fonts/Lexend.ttf", "03 Intro & Outro/intro.mp4", "04 Virtual Sets/set.png",
@@ -214,3 +215,26 @@ async def test_portal_packages_parses_the_zips():
 async def test_portal_packages_none_without_the_route():
     response = httpx.Response(404, json={"error": {"message": "Not found"}})
     assert await portal_answering(response).packages() is None
+
+
+# ---- the intros each look has, for the Portal's picker ---------------------------------------------------
+
+def test_installed_intros_lists_each_looks_intro_files(tmp_path):
+    regular = tmp_path / "03 Intro & Outro"
+    christmas = tmp_path / "Themes" / "Christmas" / "03 Intro & Outro"
+    for folder, names in ((regular, ("InFocus Intro 2026.mp4", "InFocus Outro 2026.mp4")),
+                          (christmas, ("InFocus Intro Christmas 2026.mp4", "InFocus Outro Christmas 2026.mp4",
+                                       "InFocus Intro Christmas 2026 - Collage (new music).mp4", ".DS_Store",
+                                       "._InFocus Intro Christmas 2026.mp4", "intro notes.txt"))):
+        folder.mkdir(parents=True)
+        for name in names:
+            (folder / name).write_bytes(b"x")
+    (tmp_path / "Themes" / "Halloween").mkdir()      # a theme without an intro folder lists nothing
+    assert installed_intros(tmp_path) == {
+        "": ["InFocus Intro 2026.mp4"],
+        "christmas": ["InFocus Intro Christmas 2026 - Collage (new music).mp4", "InFocus Intro Christmas 2026.mp4"],
+    }
+
+
+def test_installed_intros_of_a_missing_package_is_empty(tmp_path):
+    assert installed_intros(tmp_path / "nope") == {}

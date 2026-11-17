@@ -230,3 +230,17 @@ async def test_heartbeat_sends_machine_info_and_reads_active():
     reply = await client_with(lambda r: ok({"cancelJobIds": []})).heartbeat(version="v1", busy=False,
                                                                             health=Health(True))
     assert reply.active is True  # older Portals don't send it
+
+
+async def test_heartbeat_sends_the_installed_intros():
+    seen = {}
+
+    def handler(req):
+        seen["body"] = json.loads(req.content)
+        return ok({"cancelJobIds": []})
+
+    intros = {"": ["InFocus Intro 2026.mp4"], "christmas": ["A.mp4", "B.mp4"]}
+    await client_with(handler).heartbeat(version="v1", busy=False, health=Health(True), intros=intros)
+    assert seen["body"]["intros"] == intros
+    await client_with(handler).heartbeat(version="v1", busy=False, health=Health(True))
+    assert "intros" not in seen["body"]

@@ -162,7 +162,7 @@ Apply these rules (plus the house rules) and record each as a decision:
 
 ### 5. Fresh-graphics checklist, then write `<showDir>/edl.json`
 The format and rules are in `references/edl.md`; a complete example is in `references/example-edl.json`.
-- **Top of the file:** set `"show": "InFocus Show MM-DD-YYYY"`, `"package": <brief.packageDir>`, `"theme"` for a themed show (see "Seasonal themes"; leave it out otherwise), `"recomposite": true` for a re-composited show, and `"recordings"`: the `recordings` list copied from `recordings.json` (every take and overlay refers to it). An older brief with only `source` sets `"source"` instead.
+- **Top of the file:** set `"show": "InFocus Show MM-DD-YYYY"`, `"package": <brief.packageDir>`, `"theme"` for a themed show (see "Seasonal themes"; leave it out otherwise), `"recomposite": true` for a re-composited show, `"intros"`: `brief.intros` as it is (the intro picked on the Portal for each look; leave it out when the brief has none), and `"recordings"`: the `recordings` list copied from `recordings.json` (every take and overlay refers to it). An older brief with only `source` sets `"source"` instead.
 - **Every take** names its source: `"recording": "r1"` and `"cam"`, with `in`/`out` on that recording's timeline. In a program recording `cam` is the camera the analysis saw (it picks which TV a card goes on); in a multicam recording it's the camera file the take reads.
 - **Every overlay** names its `"recording"` too: `at` is a frame of that recording.
 
@@ -183,6 +183,9 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 - **The Follow card** (the theme's; normally `{PACKAGE}/08 Follow InFocus/InFocus Follow Us.mov`) once in the close, unless the close already has an old one you're covering.
 
 **Every show:** the first segment is the theme's intro and the last is its outro (normally `{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4` and `{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4`).
+- **Which intro:** once `"theme"` and `"intros"` are in `edl.json`, run `python $S/common.py intro <showDir>` and use the path it prints. It is the intro the producers picked on the Portal for this look, or the theme's usual intro when they picked none. Rule 5 of the check wants exactly that file.
+- **If the pick isn't installed** (`brief.intros` names a file for this look but the printed path is the usual intro): keep the usual intro and flag an `other` decision naming the missing file.
+- **A note asking for another intro** for this show ("use the original Christmas intro"): set that look's entry in `"intros"` to the file it means (one of the names in the theme's `03 Intro & Outro` folder), or remove the entry for the usual intro, then run the command again.
 
 **Graphics go over the picture as they are:**
 - **Overlapping the anchors is fine.** Name bars, dual thirds and the Follow card sit on top of everything at their package size and position. When an anchor's head or shoulder reaches the top left, the Follow card simply covers it; that's expected and correct.
@@ -239,7 +242,7 @@ A themed show uses a seasonal look for every graphic: intro, outro, name bars, d
 
   | | Halloween | Thanksgiving | Christmas |
   |---|---|---|---|
-  | Intro (first segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Intro Thanksgiving 2026.mp4` | `{PACKAGE}/Themes/Christmas/03 Intro & Outro/InFocus Intro Christmas 2026.mp4` |
+  | Intro (first segment, unless the Portal picked another: see "Which intro") | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Intro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Intro Thanksgiving 2026.mp4` | `{PACKAGE}/Themes/Christmas/03 Intro & Outro/InFocus Intro Christmas 2026.mp4` |
   | Outro (last segment) | `{PACKAGE}/Themes/Halloween/03 Intro & Outro/InFocus Outro Halloween 2026.mp4` | `{PACKAGE}/Themes/Thanksgiving/03 Intro & Outro/InFocus Outro Thanksgiving 2026.mp4` | `{PACKAGE}/Themes/Christmas/03 Intro & Outro/InFocus Outro Christmas 2026.mp4` |
   | Follow card | `{PACKAGE}/Themes/Halloween/08 Follow InFocus/InFocus Follow Us (Halloween).mov` | `{PACKAGE}/Themes/Thanksgiving/08 Follow InFocus/InFocus Follow Us (Thanksgiving).mov` | `{PACKAGE}/Themes/Christmas/08 Follow InFocus/InFocus Follow Us (Christmas).mov` |
 

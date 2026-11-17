@@ -140,3 +140,42 @@ def test_rule_5_wants_the_thanksgiving_intro_and_outro():
     assert verify_render.rule_intro_outro({"theme": "thanksgiving", "segments": segs}) == []
     fails = verify_render.rule_intro_outro({"theme": "halloween", "segments": segs})
     assert {f["segment"] for f in fails} == {"intro", "outro"}
+
+
+COLLAGE = "InFocus Intro Christmas 2026 - Collage (new music).mp4"
+
+
+def christmas_package(tmp_path):
+    folder = tmp_path / "Themes" / "Christmas" / "03 Intro & Outro"
+    folder.mkdir(parents=True)
+    (folder / COLLAGE).write_bytes(b"x")
+    return tmp_path
+
+
+def test_the_portal_pick_replaces_the_themes_intro(tmp_path):
+    pkg = christmas_package(tmp_path)
+    edl = {"package": str(pkg), "theme": "christmas", "intros": {"christmas": COLLAGE}}
+    assert common.theme_file("intro", edl) == f"{pkg}/Themes/Christmas/03 Intro & Outro/{COLLAGE}"
+    assert common.theme_file("outro", edl).endswith("InFocus Outro Christmas 2026.mp4")   # the outro stays
+
+
+def test_a_pick_for_another_theme_or_a_missing_file_keeps_the_default(tmp_path):
+    pkg = christmas_package(tmp_path)
+    default = "/Themes/Christmas/03 Intro & Outro/InFocus Intro Christmas 2026.mp4"
+    assert common.theme_file("intro", {"package": str(pkg), "theme": "christmas",
+                                       "intros": {"halloween": COLLAGE}}).endswith(default)
+    assert common.theme_file("intro", {"package": str(pkg), "theme": "christmas",
+                                       "intros": {"christmas": "Gone.mp4"}}).endswith(default)
+    assert common.theme_file("intro", {"package": str(pkg), "theme": "christmas",
+                                       "intros": {"christmas": "../../03 Intro & Outro/" + COLLAGE}}).endswith(default)
+
+
+def test_rule_5_wants_the_picked_intro(tmp_path):
+    pkg = christmas_package(tmp_path)
+    folder = "{PACKAGE}/Themes/Christmas/03 Intro & Outro/"
+    segs = [{"id": "intro", "kind": "file", "path": folder + COLLAGE},
+            {"id": "open", "kind": "source", "in": 0, "out": 100},
+            {"id": "outro", "kind": "file", "path": folder + "InFocus Outro Christmas 2026.mp4"}]
+    edl = {"package": str(pkg), "theme": "christmas", "segments": segs}
+    assert {f["segment"] for f in verify_render.rule_intro_outro(edl)} == {"intro"}
+    assert verify_render.rule_intro_outro({**edl, "intros": {"christmas": COLLAGE}}) == []
