@@ -1,8 +1,8 @@
 """Masters the program audio so the whole show sits at one level: peaks at -6 dBFS, same loudness everywhere.
 
 build_ffmpeg.py puts these finished WAVs on the program audio, cut to picture. Per program segment, written to <show_dir>/Audio/<id>.wav:
-  - anchor segments (source): dynamic normalization (evens out quiet vs loud mics, even within a two-shot,
-    without pumping room noise), a gentle 3:1 voice compressor (mics differ in crest factor: one anchor's peaks
+  - anchor segments (source): declipping when the recording has flat tops (a mic too hot at the board), then
+    dynamic normalization (evens out quiet vs loud mics, even within a two-shot, without pumping room noise), a gentle 3:1 voice compressor (mics differ in crest factor: one anchor's peaks
     sat 8 dB over her average, the other's 14 dB, so a -6 dBFS peak alone left them 5 dB apart), a trim so every
     segment has the same integrated loudness, then a limiter at the peak ceiling so plosives/laughs never pass it
   - packages (file segments with "audio": "match"): matched to the anchors' loudness, then the same limiter
@@ -46,6 +46,31 @@ def pcm(src, start, dur, af):
     out = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{start:.6f}", "-t", f"{dur:.6f}", "-i", src, "-af", af,
                           "-ar", str(SR), "-ac", "2", "-f", "f32le", "-"], capture_output=True, check=True).stdout
     return np.frombuffer(out, np.float32).reshape(-1, 2)
+
+
+def filt(x, af):
+    """Run an ffmpeg filter chain on in-memory stereo float samples."""
+    out = subprocess.run(["ffmpeg", "-v", "error", "-f", "f32le", "-ar", str(SR), "-ac", "2", "-i", "-", "-af", af,
+                          "-ar", str(SR), "-ac", "2", "-f", "f32le", "-"],
+                         input=np.ascontiguousarray(x).tobytes(), capture_output=True, check=True).stdout
+    return np.frombuffer(out, np.float32).reshape(-1, 2)
+
+
+# A mic run too hot at the board records flat tops (11-18-2026: 12% of samples at 0 dBFS). adeclip rebuilds them;
+# at its default threshold it skips clipping that dense, t=1 catches it (flat samples 20.7% -> 9.2% on that show).
+DECLIP = "adeclip=w=20:o=75:a=8:t=1"
+DECLIP_MIN_PCT = 0.05      # under this, a few flat samples are chance; leave the audio alone
+HOT_MIC_PCT = 1.0          # over this, warn that the mic gain was too hot
+
+
+def clipped_pct(x):
+    """Percent of samples sitting flat at the channel's peak (two or more in a row): what clipping leaves behind."""
+    pct = []
+    for ch in x.T:
+        top = np.abs(ch) >= 0.999 * (np.abs(ch).max() + 1e-12)
+        flat = top & (np.r_[top[1:], False] | np.r_[False, top[:-1]])
+        pct.append(flat.mean() * 100 if len(ch) else 0.0)
+    return float(max(pct))
 
 
 def loudness(x):
@@ -107,12 +132,16 @@ def main():
             audio, offset = segment_audio(edl, seg)     # the recording's M file, else its program file
             pan = pan_for(audio)
             start, dur = (seg["in"] + offset) / fps, frames / fps
-            first = pcm(audio, start, dur, f"{pan},{LEVEL},{limiter(cfg['peak_dbfs'])}")
-            measured = loudness(first)
+            raw = pcm(audio, start, dur, pan)
+            clipped = clipped_pct(raw)
+            declipped = clipped >= DECLIP_MIN_PCT
+            if declipped:
+                raw = filt(raw, DECLIP)
+            measured = loudness(filt(raw, f"{LEVEL},{limiter(cfg['peak_dbfs'])}"))
             trim = cfg["dialogue_lufs"] - measured if measured > SILENT_LUFS else 0.0
-            x = pcm(audio, start, dur,
-                    f"{pan},{LEVEL},volume={trim:.2f}dB,{limiter(cfg['peak_dbfs'])}")
+            x = filt(raw, f"{LEVEL},volume={trim:.2f}dB,{limiter(cfg['peak_dbfs'])}")
         else:
+            clipped, declipped = 0.0, False
             path = expand(seg["path"], edl)
             frames = round(float(probe(path)["format"]["duration"]) * fps)   # what the timeline will show
             dur = frames / fps
@@ -129,8 +158,10 @@ def main():
         peak = true_peak_db(x)
         report.append({"id": seg["id"], "file": out, "trim_db": round(float(trim), 2), "lift_db": round(float(lift), 2),
                        "lufs": round(loudness(x), 1), "peak_dbfs": round(peak, 1), "reached": bool(reached),
-                       "seconds": round(len(x) / SR, 3)})
+                       "seconds": round(len(x) / SR, 3), "clipped_pct": round(clipped, 2), "declipped": declipped})
         note = "" if reached else f"   ⚠️ can't reach {cfg['peak_dbfs']} dBFS within +{MAX_LIFT_DB:.0f} dB (near silence?)"
+        if clipped >= HOT_MIC_PCT:
+            note += f"   ⚠️ {clipped:.1f}% clipped in the recording (declipped): mic gain too hot at the board"
         print(f"{seg['id']:22} trim {trim:+6.2f} dB  lift {lift:+5.2f} dB   {report[-1]['lufs']:6.1f} LUFS   "
               f"true peak {peak:5.1f} dBFS{note}", flush=True)
     with open(os.path.join(out_dir, "levels.json"), "w") as f:
