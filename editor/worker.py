@@ -35,6 +35,7 @@ class LoopSettings:
     unhealthy_doctor_s: float = 60.0  # while a problem blocks jobs (e.g. just plugged in), check again soon
     housekeeping_s: float = 3600.0
     packages_s: float = 86_400.0  # how often the package zips on Drive are checked for changes
+    intros_s: float = 900.0  # how often the intros release (infocus-graphics) is checked, so picks show up quickly
     update_s: float = CHECK_EVERY_S
 
 
@@ -43,6 +44,7 @@ class Worker:
                  run_job: Callable[[Claim, asyncio.Event], Awaitable[Any]],
                  housekeeping: Callable[[], None] = lambda: None,
                  packages: Callable[[], Awaitable[str]] | None = None,
+                 intro_check: Callable[[], Awaitable[str]] | None = None,
                  update: Callable[[str | None, tuple[str, ...]], UpdateResult] | None = None,
                  pairing: Any = None, backend_statuses: Callable[[], list[Any]] = lambda: [],
                  set_agent_order: Callable[[tuple[str, ...]], None] = lambda order: None,
@@ -58,6 +60,7 @@ class Worker:
         self._run_job = run_job
         self._housekeeping = housekeeping
         self._packages = packages
+        self._intro_check = intro_check
         self._update = update
         self._pairing = pairing
         self._backend_statuses = backend_statuses
@@ -79,6 +82,7 @@ class Worker:
         self._health_at = float("-inf")
         self._housekeeping_at = float("-inf")
         self._packages_at = float("-inf")
+        self._intros_at = float("-inf")
         self._update_at = float("-inf")
         self.busy = False
         self.current: tuple[str, asyncio.Event] | None = None
@@ -317,6 +321,16 @@ class Worker:
         except Exception as e:  # noqa: BLE001 - the installed looks still work
             log.warning("package check failed: %s", e)
 
+    async def _maybe_check_intros(self) -> None:
+        """Between jobs, every 15 minutes: install new intros from the repo (editor/intros.py)."""
+        if self._intro_check is None or self._clock() - self._intros_at < self._s.intros_s:
+            return
+        self._intros_at = self._clock()
+        try:
+            log.info("%s", await self._intro_check())
+        except Exception as e:  # noqa: BLE001 - the installed intros still work
+            log.warning("intro check failed: %s", e)
+
     async def step(self) -> bool:
         """One pass of the claim loop. Returns True if a job ran."""
         if self.unlinked:
@@ -328,6 +342,7 @@ class Worker:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(self._housekeeping)
         await self._maybe_sync_packages()
+        await self._maybe_check_intros()
         health = await self.refresh_health()
         if not health.ok:
             return False

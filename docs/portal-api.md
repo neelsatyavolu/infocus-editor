@@ -41,7 +41,7 @@ Once a day, between jobs (`editor/packages.py`, and at every start), the editor 
 
 Every look's intro videos also come from the infocus-graphics repo, so adding or revising an intro is a commit there (`InFocus [<Theme> ]2026 Package/03 Intro & Outro/`, any `.mp4`/`.mov` with "Intro" in its name). Its `intros` workflow publishes one tarball per commit on the `intros` release (`<look>/<file>`, look `regular` or the theme in lower case), and the Portal hands out the newest one the same way as Graphics Source.
 
-Right after the package zips (same daily check, `editor/intros.py`), the editor calls `intros`. A new `version` is downloaded, checked against `sha256` and unpacked into `<package>/_Intros/`. Then every intro is copied into its look's `03 Intro & Outro` folder (only for looks that are installed). This copy runs every time, so a zip that replaced a look's folder gets the repo's intros back straight away. An intro the repo dropped is removed if the editor put it there; files that also came from a zip stay. The heartbeat's `intros` list (below) is what the Portal's intro picker offers.
+Every 15 minutes between jobs (and right after the daily package-zip check, `editor/intros.py`), the editor calls `intros`. A new `version` is downloaded, checked against `sha256` and unpacked into `<package>/_Intros/`. Then every intro is copied into its look's `03 Intro & Outro` folder (only for looks that are installed). This copy runs every time, so a zip that replaced a look's folder gets the repo's intros back straight away. An intro the repo dropped is removed if the editor put it there; files that also came from a zip stay. The heartbeat's `intros` list (below) is what the Portal's intro picker offers.
 
 ### Claim
 

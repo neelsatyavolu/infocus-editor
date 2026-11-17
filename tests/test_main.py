@@ -520,6 +520,24 @@ async def test_package_zips_are_checked_once_a_day_between_jobs():
     assert calls == [0.0, 86_400.0]
 
 
+async def test_intros_are_checked_every_15_minutes_between_jobs():
+    now = [0.0]
+    calls = []
+
+    async def intro_check():
+        calls.append(now[0])
+        return "intros: up to date"
+
+    w = Worker(portal=FakePortal(), version="0.1.0", doctor=lambda: Health(True), run_job=None,
+               intro_check=intro_check, settings=FAST, clock=lambda: now[0])
+    await w.step()
+    now[0] = 899.0
+    await w.step()
+    now[0] = 900.0
+    await w.step()
+    assert calls == [0.0, 900.0]
+
+
 async def test_a_failing_package_check_does_not_stop_the_loop():
     async def packages():
         raise RuntimeError("boom")

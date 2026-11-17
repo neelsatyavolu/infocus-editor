@@ -1,8 +1,8 @@
 """Every look's intros from the infocus-graphics repo, so a new or revised intro is just a commit there.
 
 The repo's intros workflow publishes one tarball per commit ("<look>/<file>", look = "regular" or a theme such as
-"christmas"). Once a day, right after the package zips are checked (editor/packages.py), the editor asks the Portal
-for the newest one, keeps it unpacked in `_Intros/`, and copies each intro into its look's "03 Intro & Outro" folder.
+"christmas"). Every 15 minutes between jobs, and right after the daily package-zip check (editor/packages.py), the
+editor asks the Portal for the newest one, keeps it unpacked in `_Intros/`, and copies each intro into its look's "03 Intro & Outro" folder.
 That copy runs every time, so a zip that replaced a look's folder gets the repo's intros back straight away. Intros the
 repo dropped are removed again; files that came only from a zip are left alone. Anything going wrong keeps what's
 installed: the Portal's intro picker then shows what the Mac has.
