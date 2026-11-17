@@ -38,7 +38,7 @@ def build_worker():
     from editor.keychain import Keychain
     from editor.link import TOKEN_ITEM, device_name
     from editor.logout_guard import logout_guard
-    from editor.intros import sync_looks
+    from editor.intros import sync_intros, sync_looks
     from editor.packages import installed_intros
     from editor.pairing import Pairing
     from editor.portal import PortalClient
@@ -70,6 +70,7 @@ def build_worker():
                   shell=RemoteShell(cfg.machine_kind, lambda: keychain.get(TOKEN_ITEM)),
                   housekeeping=lambda: cleanup_job_dirs(cfg.work_root, cfg.keep_days),
                   packages=partial(sync_looks, portal, drive, cfg.package_dir),
+                  intro_check=partial(sync_intros, portal, drive, cfg.package_dir),
                   intros=lambda: installed_intros(cfg.package_dir))
 
 
