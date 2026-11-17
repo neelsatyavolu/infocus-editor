@@ -44,27 +44,34 @@ def _installed_version(cache: Path) -> str | None:
 
 
 async def sync_intros(portal: Any, drive: Any, package_dir: Path) -> str:
-    """Bring the intros up to date and put them in place; returns what happened, for the log. Never raises."""
-    cache = package_dir / CACHE_DIR
+    """Bring the intros up to date and put them in place; returns what happened, for the log. Never raises.
+    What's already downloaded is put in place even when the update fails, so a look a zip just replaced still
+    gets its intros back."""
     try:
-        release = await portal.intros()
-        if release is None:
-            status = "kept the installed intros"
-        elif release.version == _installed_version(cache):
-            status = f"up to date ({release.version[:12]})"
-        else:
-            tarball = package_dir / f"intros-{release.version}.tar.gz"
-            try:
-                await drive.download(release.url, tarball, release.size)
-                await asyncio.to_thread(_install, tarball, cache, release)
-            finally:
-                tarball.unlink(missing_ok=True)
-                tarball.with_name(tarball.name + ".part").unlink(missing_ok=True)
-            status = f"updated to {release.version[:12]}"
-        placed = await asyncio.to_thread(place, package_dir)
-        return f"intros: {status}; {placed} in place"
+        status = await _update(portal, drive, package_dir / CACHE_DIR)
     except Exception as e:  # noqa: BLE001 - the installed intros still work
-        return f"intros: kept the installed intros, the update failed ({e.__class__.__name__}: {e})"[:400]
+        status = f"kept the installed intros, the update failed ({e.__class__.__name__}: {e})"
+    try:
+        placed = await asyncio.to_thread(place, package_dir)
+    except Exception as e:  # noqa: BLE001
+        return f"intros: {status}; couldn't put them in place ({e.__class__.__name__}: {e})"[:400]
+    return f"intros: {status}; {placed} in place"[:400]
+
+
+async def _update(portal: Any, drive: Any, cache: Path) -> str:
+    release = await portal.intros()
+    if release is None:
+        return "kept the installed intros"
+    if release.version == _installed_version(cache):
+        return f"up to date ({release.version[:12]})"
+    tarball = cache.with_name(f"intros-{release.version}.tar.gz")
+    try:
+        await drive.download(release.url, tarball, release.size)
+        await asyncio.to_thread(_install, tarball, cache, release)
+    finally:
+        tarball.unlink(missing_ok=True)
+        tarball.with_name(tarball.name + ".part").unlink(missing_ok=True)
+    return f"updated to {release.version[:12]}"
 
 
 def _is_intro(name: str) -> bool:
@@ -92,9 +99,26 @@ def _install(tarball: Path, cache: Path, release: GraphicsRelease) -> None:
         raise
 
 
+def _stamp(path: Path) -> list[int]:
+    st = path.stat()
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _read_owned(manifest: Path) -> dict[str, list[int]]:
+    try:
+        data = json.loads(manifest.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, list)} if isinstance(data, dict) else {}
+
+
 def place(package_dir: Path) -> int:
     """Copy the unpacked intros into their looks' folders (only looks that are installed) and remove ones the repo
-    dropped. Returns how many intros are in place."""
+    dropped. Returns how many intros are in place.
+
+    The repo's copy always wins. A file counts as ours (and is removed when the repo drops it) only while it is still
+    exactly the copy this made (size and modified time, recorded in the manifest); a file that came from a zip, even
+    one that replaced our copy, never is."""
     cache = package_dir / CACHE_DIR
     with _LOCK:
         wanted: dict[str, Path] = {}
@@ -108,24 +132,28 @@ def place(package_dir: Path) -> int:
                 if src.is_file() and _is_intro(src.name):
                     wanted[str((look / INTRO_FOLDER / src.name).relative_to(package_dir))] = src
         manifest = cache / PLACED_FILE
-        try:
-            before = set(json.loads(manifest.read_text()))
-        except (OSError, ValueError):
-            before = set()
-        for rel in before - set(wanted):
-            (package_dir / rel).unlink(missing_ok=True)
-        # Only files this copy created are ours to remove later; one a zip also has (its usual intro) never is.
-        owned = before & set(wanted)
+        before = _read_owned(manifest)
+
+        def still_ours(rel: str) -> bool:
+            dest = package_dir / rel
+            return rel in before and dest.is_file() and _stamp(dest) == before[rel]
+
+        for rel in set(before) - set(wanted):
+            if still_ours(rel):
+                (package_dir / rel).unlink()
+        owned: dict[str, list[int]] = {}
         for rel, src in wanted.items():
             dest = package_dir / rel
-            if not dest.is_file():
-                owned.add(rel)
-            if not dest.is_file() or dest.stat().st_size != src.stat().st_size:
+            ours = not dest.is_file() or still_ours(rel)
+            if not dest.is_file() or _stamp(dest) != _stamp(src):
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest.with_name(dest.name + ".part"))
-                dest.with_name(dest.name + ".part").replace(dest)
+                part = dest.with_name(dest.name + ".part")
+                shutil.copy2(src, part)
+                part.replace(dest)
+            if ours:
+                owned[rel] = _stamp(dest)
         if cache.is_dir():
-            manifest.write_text(json.dumps(sorted(owned)))
+            manifest.write_text(json.dumps(owned, sort_keys=True))
         return len(wanted)
 
 

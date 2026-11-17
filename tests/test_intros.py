@@ -142,3 +142,43 @@ async def test_portal_intros_route():
     missing = PortalClient("https://portal.example.org", "tok", sleep=no_sleep,
                            transport=httpx.MockTransport(lambda r: httpx.Response(404, json={"error": {}})))
     assert await missing.intros() is None
+
+
+async def test_a_revised_intro_of_the_same_size_still_replaces_the_old_one(tmp_path):
+    pkg = package(tmp_path)
+    first = make_tarball(tmp_path / "1.tar.gz", {"./regular/Collage Intro.mp4": b"aaaa"})
+    await sync_intros(FakePortal(release(V1, first)), FakeDrive(first), pkg)
+    second = make_tarball(tmp_path / "2.tar.gz", {"./regular/Collage Intro.mp4": b"bbbb"})
+    import os
+    import time
+    await sync_intros(FakePortal(release(V2, second)), FakeDrive(second), pkg)
+    cached = pkg / CACHE_DIR / "regular" / "Collage Intro.mp4"
+    os.utime(cached, ns=(time.time_ns(), time.time_ns() + 10**9))   # the new tarball's files are newer
+    await sync_intros(FakePortal(release(V2, second)), FakeDrive(second), pkg)
+    assert (pkg / "03 Intro & Outro" / "Collage Intro.mp4").read_bytes() == b"bbbb"
+
+
+async def test_a_zip_that_replaced_our_intro_keeps_its_file_when_the_repo_drops_it(tmp_path):
+    pkg = package(tmp_path)
+    first = make_tarball(tmp_path / "1.tar.gz", {"./regular/Shared Intro.mp4": b"repo"})
+    await sync_intros(FakePortal(release(V1, first)), FakeDrive(first), pkg)
+    (pkg / "03 Intro & Outro" / "Shared Intro.mp4").write_bytes(b"from the zip")   # the daily zip swap
+    await sync_intros(FakePortal(release(V1, first)), FakeDrive(first), pkg)       # repo copy wins, not ours
+    second = make_tarball(tmp_path / "2.tar.gz", {"./regular/Other Intro.mp4": b"other"})
+    await sync_intros(FakePortal(release(V2, second)), FakeDrive(second), pkg)
+    assert (pkg / "03 Intro & Outro" / "Shared Intro.mp4").is_file()
+
+
+async def test_cached_intros_are_put_back_even_when_the_update_fails(tmp_path):
+    pkg = package(tmp_path)
+    tarball = make_tarball(tmp_path / "i.tar.gz", {f"./christmas/{CHRISTMAS}": b"collage"})
+    await sync_intros(FakePortal(release(V1, tarball)), FakeDrive(tarball), pkg)
+    christmas = pkg / "Themes" / "Christmas" / "03 Intro & Outro"
+    (christmas / CHRISTMAS).unlink()                                   # a zip replaced the folder
+
+    class DownPortal:
+        async def intros(self):
+            raise OSError("Portal down")
+
+    message = await sync_intros(DownPortal(), FakeDrive(tarball), pkg)
+    assert "failed" in message and (christmas / CHRISTMAS).read_bytes() == b"collage"

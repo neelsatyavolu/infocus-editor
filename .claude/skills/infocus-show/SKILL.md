@@ -184,7 +184,7 @@ The format and rules are in `references/edl.md`; a complete example is in `refer
 
 **Every show:** the first segment is the theme's intro and the last is its outro (normally `{PACKAGE}/03 Intro & Outro/InFocus Intro 2026.mp4` and `{PACKAGE}/03 Intro & Outro/InFocus Outro 2026.mp4`).
 - **Which intro:** once `"theme"` and `"intros"` are in `edl.json`, run `python $S/common.py intro <showDir>` and use the path it prints. It is the intro the producers picked on the Portal for this look, or the theme's usual intro when they picked none. Rule 5 of the check wants exactly that file.
-- **If the pick isn't installed** (`brief.intros` names a file for this look but the printed path is the usual intro): keep the usual intro and flag an `other` decision naming the missing file.
+- **If the pick isn't installed** (`brief.intros` names a file for this look, but the printed path ends in a different file name): keep the printed intro and flag an `other` decision naming the missing file. A pick that is the usual intro's own file name is fine.
 - **A note asking for another intro** for this show ("use the original Christmas intro"): set that look's entry in `"intros"` to the file it means (one of the names in the theme's `03 Intro & Outro` folder), or remove the entry for the usual intro, then run the command again.
 
 **Graphics go over the picture as they are:**
