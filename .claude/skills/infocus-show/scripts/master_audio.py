@@ -56,9 +56,11 @@ def filt(x, af):
     return np.frombuffer(out, np.float32).reshape(-1, 2)
 
 
-# A mic run too hot at the board records flat tops (11-18-2026: 12% of samples at 0 dBFS). adeclip rebuilds them;
-# at its default threshold it skips clipping that dense, t=1 catches it (flat samples 20.7% -> 9.2% on that show).
-DECLIP = "adeclip=w=20:o=75:a=8:t=1"
+# A mic run too hot at the board records flat tops (11-18-2026: 5-20% of samples at 0 dBFS). adeclip rebuilds them;
+# at its default threshold it skips clipping that dense, t=1 catches it. Two passes with its default 55 ms window
+# rebuild clean speech clipped to 18% flat at 14.5 dB SNR, against 10.5 dB for one 20 ms pass (6% flat: 22.3 vs 17.5).
+DECLIP_PASS = "adeclip=w=55:o=75:a=8:t=1"
+DECLIP = f"{DECLIP_PASS},{DECLIP_PASS}"
 DECLIP_MIN_PCT = 0.05      # under this, a few flat samples are chance; leave the audio alone
 HOT_MIC_PCT = 1.0          # over this, warn that the mic gain was too hot
 

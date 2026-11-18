@@ -112,6 +112,20 @@ def test_flat_tops_are_rebuilt(mastered):
     assert (top[1:] & top[:-1]).mean() * 100 < levels["hot"]["clipped_pct"] / 4
 
 
+def test_heavy_clipping_is_rebuilt_close_to_the_original():
+    """11-18-2026 (second cut): up to 20% of the mic's samples were flat. The declip has to rebuild that well, not
+    just remove the flat runs: within 17 dB SNR of the unclipped voice (the old w=20 setting managed 11 dB)."""
+    sys.path.insert(0, str(SCRIPT.parent))
+    import master_audio
+    clean = voiced(4, 1.0) / 0.45
+    clipped = stereo(np.clip(clean, -1, 1))
+    assert master_audio.clipped_pct(clipped) > 20
+    rebuilt = master_audio.filt(clipped, master_audio.DECLIP)[: len(clean), 0]
+    ref = clean[: len(rebuilt)]
+    err = ref - (ref @ rebuilt) / (rebuilt @ rebuilt) * rebuilt
+    assert 10 * np.log10((ref @ ref) / (err @ err)) >= 17
+
+
 def test_clean_anchor_audio_is_left_alone(mastered):
     _, levels, _ = mastered
     for seg in ("open", "throw"):

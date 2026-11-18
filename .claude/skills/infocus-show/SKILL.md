@@ -237,6 +237,7 @@ A themed show uses a seasonal look for every graphic: intro, outro, name bars, d
     - `christmas` from Thanksgiving to Dec 25
   - **Unless asked otherwise:** when `brief.note`, `brief.fix.text` or a house rule asks for another look, use that instead: the regular look ("regular graphics", "no Christmas theme") or another theme ("Halloween show", "use the Thanksgiving graphics"), in or out of its season.
   - Nothing else turns a theme on: not costumes on air, not seasonal sets or graphics in the recording. Otherwise use the regular look.
+  - Only an explicit request for another look changes it. A house rule or note that just names an intro or outro file (older rules say "use `InFocus Intro 2026.mp4` and `InFocus Outro 2026.mp4`") means "use the package's intro and outro", not "use the regular look": keep the date's theme.
 - **Set it everywhere:** `export INFOCUS_THEME=<theme>`, and `"theme": "<theme>"` at the top of `edl.json`. `render_graphics.mjs`, `verify_render.py` and the rest read it from there.
 - **Its files** (paths in `edl.json`):
 
