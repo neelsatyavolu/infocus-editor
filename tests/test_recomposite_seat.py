@@ -49,6 +49,16 @@ def test_tight_two_shot_never_shows_its_bottom_cut():
     assert (s * (H - 1) + ty >= lip + seat.LIP_PANEL - 0.5).all()
 
 
+def test_two_anchors_are_centred_as_a_pair_by_their_bodies():
+    geom = virtual_set.geometry("M", "")
+    # The right-hand anchor is broader, so their faces' midpoint is left of their bodies' midpoint.
+    a = np.maximum(seated(350, 900, 300, 700), seated(350, 900, 1150, 1750))
+    a[700:900, 1750:1850] = 1                         # an elbow out wide, below the shoulders: doesn't count
+    boxes = [[[450, 130, 100, 215], [1300, 130, 100, 215]]]
+    s, tx, ty, note = seat.fit(geom, boxes, NO_TOUCH, [a])
+    assert abs(s * (300 + 1749) / 2 + tx - W / 2) <= 1, note
+
+
 def test_well_seated_shot_is_left_alone():
     geom = virtual_set.geometry("R", "")
     seat_x, seat_h = geom["seats"]["x"][0], geom["seats"]["h"]
@@ -104,6 +114,25 @@ def test_spread_out_takes_still_share_their_median():
     takes = [{"id": f"t{i}", "recording": "r1", "cam": "M", "s": 1.0, "tx": tx, "ty": 0.0}
              for i, tx in enumerate([0.0, 10.0, 20.0])]
     assert {t["tx"] for t in seat.share_transforms(takes)} == {10.0}
+
+
+def test_green_takes_from_one_camera_all_share_its_median_even_an_outlier():
+    # A green-screen camera is locked off on a fixed real table, so one seat fits every take from it; a take that
+    # measured far off (the neighbour's hands in the corner read as a body cut at the frame bottom) is wrong, not
+    # a moved camera.
+    takes = [{"id": f"t{i}", "recording": "r1", "cam": "R", "green": True, "s": s, "tx": 0.0, "ty": ty}
+             for i, (s, ty) in enumerate([(0.90, 61.0), (0.87, 148.0), (0.90, 58.0), (0.89, 60.0)])]
+    out = seat.share_transforms(takes)
+    assert {(t["s"], t["ty"]) for t in out} == {(0.895, 60.5)}
+    assert takes[1]["ty"] == 148.0                      # inputs untouched
+
+
+def test_a_green_camera_is_grouped_apart_from_a_set_camera():
+    takes = [{"id": "a", "recording": "r1", "cam": "R", "green": True, "s": 1.0, "tx": 0.0, "ty": 0.0},
+             {"id": "b", "recording": "r1", "cam": "R", "green": True, "s": 1.0, "tx": 200.0, "ty": 0.0},
+             {"id": "c", "recording": "r2", "cam": "R", "s": 1.0, "tx": 60.0, "ty": 0.0},
+             {"id": "d", "recording": "r2", "cam": "R", "s": 1.0, "tx": 400.0, "ty": 0.0}]
+    assert [t["tx"] for t in seat.share_transforms(takes)] == [100.0, 100.0, 60.0, 400.0]
 
 
 def test_settle_leaves_a_nearly_seated_camera_alone():

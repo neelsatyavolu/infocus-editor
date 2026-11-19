@@ -184,6 +184,20 @@ def test_a_re_rendered_take_adopts_its_cameras_transform():
     assert (far["s"], far["tx"]) == (0.80, 200.0)
 
 
+def test_a_green_take_isnt_failed_for_its_own_scale_or_for_moving():
+    # The key follows the anchor (leaning in and out changes the area) and the seat is the camera's, not the take's.
+    moving = [100000.0] * 60 + [150000.0] * 40
+    assert recomposite.take_ok(6, 6, moving, 1.28, green=True) == (True, "")
+    assert recomposite.take_ok(6, 6, moving, 1.28)[0] is False
+    assert recomposite.take_ok(6, 6, [0.0] * 100, 1.0, green=True)[0] is False      # still: nobody there
+
+
+def test_a_re_rendered_green_take_always_adopts_its_cameras_transform():
+    siblings = [{"s": 0.95, "tx": 20.0, "ty": 10.0}, {"s": 0.95, "tx": 20.0, "ty": 10.0}]
+    far = recomposite.adopt({"s": 0.80, "tx": 200.0, "ty": 4.0, "green": True}, siblings)   # locked off: it's off
+    assert (far["s"], far["tx"], far["ty"]) == (0.95, 20.0, 10.0)
+
+
 def test_elbows_are_matched_to_each_anchor_by_their_shoulders():
     boxes = [[[530, 300, 110, 215], [1310, 300, 110, 215]]] * 4
     left = {"ls": [480, 450, 0.8], "rs": [700, 450, 0.8], "le": [460, 850, 0.8], "re": [720, 870, 0.8]}

@@ -8,23 +8,28 @@ front of a chroma-key green. There's no picture of the set in them at all, so th
 - green_alpha / despill: the anchors' alpha by chroma key, limited to the people Vision found, and the green spill
   pulled out of their edges
 
-No real green-screen sample existed when this was written (2026-11-13): every threshold here is a first guess from
-synthetic frames and the 2026 set images, to be checked on the first real recording.
+Tuned on the first real green-screen recording (InFocus Show 11-20-2026, three cameras at a green table): its key
+leads by about 50-60 and the tablecloth, lit brighter, by about 80.
 """
 import cv2
 import numpy as np
+
+from anchor_alpha import guided
 
 GREEN_LEAD = 60                # 8-bit: how far green rises above red and blue on a well-lit key (greenness 1)
 GREEN_MIN = 50                 # a key pixel's green is at least this bright (dark green-greys aren't the key)
 KEY_MIN = 0.5                  # greenness from which a pixel is the key, for the share tests
 GREEN_SHARE = 0.3              # a frame (or the background around the anchors) this much key is a green screen
-KEY_LO, KEY_HI = 0.12, 0.7     # lead over the key's own: below LO solid anchor, above HI pure key, between soft edge
+KEY_LO, KEY_HI = 0.2, 0.8      # lead over the key's own: below LO solid anchor, above HI pure key, between soft edge
+PROTECT = 0.9                  # deep inside Vision's matte the anchor stays only where the lead is under this: the
+                               # key showing between the arms and the body, or the tablecloth under them, still goes
+EDGE_R, EDGE_EPS = 3, 1e-4     # guided filter that snaps the key's edge to the picture (the camera's 4:2:0 chroma
+                               # leaves a blocky, speckled edge in curly hair otherwise)
 PERSON_SHARE = 0.02            # of the frame: a non-key blob at least this big is a person
 TOP_MARGIN = 0.03              # of the height: a blob reaching higher than this is studio clutter, not a seated anchor
 NEAR_PX = 31                   # how far past Vision's matte the key may still find hair and edges
 INNER_PX = 61                  # this deep inside Vision's matte the anchor stays, even in green clothes (Vision's
                                # edge can run 15-20 px loose, so shallower would keep a halo of key)
-SPILL_BAND = 10                # px either side of the matte's edge where green spill is pulled out
 
 
 def lead(f):
@@ -101,23 +106,25 @@ def green_camera(f):
 def green_alpha(frame, vis, key=None):
     """Anchor alpha (0..1) on a green-screen frame. The key decides the edge (hair, fingers, soft focus); Vision's
     matte `vis` (0..1) decides who is kept (anchors, not crew or clutter beside the screen), and deep inside it the
-    anchor stays even where the key would eat green clothes. `key` is the take's key_lead (else this frame's)."""
+    anchor stays where the key would eat dark green clothes, but not where the picture is plainly the key (between
+    the arms, the tablecloth). The edge is then snapped to the picture. `key` is the take's key_lead (else this
+    frame's)."""
     rel = lead(frame) / max(1.0, key if key is not None else key_lead(frame))
     a_key = 1 - np.clip((rel - KEY_LO) / (KEY_HI - KEY_LO), 0, 1)
     near = cv2.GaussianBlur(cv2.dilate((vis > 0.25).astype(np.uint8), np.ones((NEAR_PX, NEAR_PX), np.uint8))
                             .astype(np.float32), (15, 15), 0)
     inner = cv2.GaussianBlur(cv2.erode((vis > 0.5).astype(np.uint8), np.ones((INNER_PX, INNER_PX), np.uint8))
-                             .astype(np.float32), (9, 9), 0)
-    return np.clip(np.maximum(a_key * near, inner), 0, 1).astype(np.float32)
+                             .astype(np.float32), (9, 9), 0) * (rel < PROTECT)
+    a = np.clip(np.maximum(a_key * near, inner), 0, 1).astype(np.float32)
+    return np.clip(guided(frame, a, r=EDGE_R, eps=EDGE_EPS), 0, 1).astype(np.float32)
 
 
 def despill(frame, a):
-    """The frame with green spill pulled out near the anchor's edge: there green is no higher than the average of
-    red and blue (the brighter of them would leave a teal edge on a navy shirt). Skin and hair (green below that)
-    and the anchor's middle are untouched."""
+    """The frame with green spill pulled out of the whole anchor: green no higher than the average of red and blue
+    (the brighter of them would leave a teal edge on a navy shirt). The green screen and tablecloth bounce light onto
+    hands, forearms and the underside of hair, not just the edge. Skin, hair, greys and dark clothes (green at or
+    below that average) are untouched; a green shirt goes grey-ish."""
     out = frame.copy()
-    edge = ((a > 0.02) & (a < 0.98)).astype(np.uint8)
-    band = cv2.dilate(edge, np.ones((2 * SPILL_BAND + 1, 2 * SPILL_BAND + 1), np.uint8)) > 0
     g, rb = out[..., 1], ((out[..., 0].astype(np.uint16) + out[..., 2]) // 2).astype(out.dtype)
-    out[..., 1] = np.where(band, np.minimum(g, rb), g)
+    out[..., 1] = np.where(a > 0.01, np.minimum(g, rb), g)
     return out

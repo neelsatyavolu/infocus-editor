@@ -169,8 +169,15 @@ def fit(geom, boxes, touch, alphas, rest=None):
             beside = float(cols.min()) if sx + sw / 2 < W / 2 else float(cols.max())
     back, lip = geom["desk_back"], geom["desk_lip"]
 
+    # Two anchors (M) are centred as a pair in the frame by their shoulders (a band just under their chins, which
+    # gestures and elbows don't reach), not their faces: one leaning, or broader shoulders, leaves the pair visibly
+    # off centre. One anchor sits on their seat.
+    chin = float(np.median(arr[:, :, 1] + arr[:, :, 3]))
+    band = sil[int(chin + 0.4 * fh):int(chin + 1.0 * fh)] if n >= 2 else None
+    pair = body_extent(band) if band is not None and band.any() else None
+
     def place(s):
-        tx = float(np.mean(seat["x"]) - s * np.mean(cx))
+        tx = float(W / 2 - s * (pair[0] + pair[1]) / 2 if pair else np.mean(seat["x"]) - s * np.mean(cx))
         # The camera cut the anchor off at a side of the frame: that side must stay outside it, or the cut shows.
         if touch["left"]:
             tx = min(tx, 0.0)
@@ -223,15 +230,18 @@ def settle(takes):
 
 def share_transforms(takes):
     """Takes ({recording, cam, s, tx, ty, ...}) from the same recording and camera whose transforms all sit within
-    SHARE_PX / SHARE_SCALE of their group's median use that median; the rest keep their own. Returns new dicts."""
+    SHARE_PX / SHARE_SCALE of their group's median use that median; the rest keep their own. A green-screen camera
+    ("green": true) is locked off on a real table that never moves, so all its takes use the median: a take that
+    measured far off was misread (a neighbour's hands in the corner), not filmed differently. Returns new dicts."""
     out = [dict(t) for t in takes]
     groups = {}
     for i, t in enumerate(out):
-        groups.setdefault((t["recording"], t["cam"]), []).append(i)
-    for members in groups.values():
+        groups.setdefault((t["recording"], t["cam"], bool(t.get("green"))), []).append(i)
+    for (_, _, green), members in groups.items():
         med = {k: float(np.median([out[i][k] for i in members])) for k in ("s", "tx", "ty")}
-        close = [i for i in members if abs(out[i]["s"] - med["s"]) <= SHARE_SCALE
-                 and abs(out[i]["tx"] - med["tx"]) <= SHARE_PX and abs(out[i]["ty"] - med["ty"]) <= SHARE_PX]
+        close = members if green else [
+            i for i in members if abs(out[i]["s"] - med["s"]) <= SHARE_SCALE
+            and abs(out[i]["tx"] - med["tx"]) <= SHARE_PX and abs(out[i]["ty"] - med["ty"]) <= SHARE_PX]
         if len(close) < 2:
             continue
         shared = {k: float(np.median([out[i][k] for i in close])) for k in ("s", "tx", "ty")}
