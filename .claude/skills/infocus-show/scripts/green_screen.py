@@ -23,6 +23,10 @@ GREEN_SHARE = 0.3              # a frame (or the background around the anchors) 
 KEY_LO, KEY_HI = 0.2, 0.8      # lead over the key's own: below LO solid anchor, above HI pure key, between soft edge
 PROTECT = 0.9                  # deep inside Vision's matte the anchor stays only where the lead is under this: the
                                # key showing between the arms and the body, or the tablecloth under them, still goes
+SHADOW_HUE = (1.5, 2.0)        # green over the brighter of red and blue: from LO a dark pixel starts being key, by
+                               # HI it's key. The arms' contact shadow on the green tablecloth (19, 39, 17) measures
+                               # about 2, the cloth 2.1; skin, dark hair with spill and black clothes 1.2-1.4
+SHADOW_LEAD = 12               # ...and only where green leads by this much (near-black noise isn't a shadow)
 EDGE_R, EDGE_EPS = 3, 1e-4     # guided filter that snaps the key's edge to the picture (the camera's 4:2:0 chroma
                                # leaves a blocky, speckled edge in curly hair otherwise)
 PERSON_SHARE = 0.02            # of the frame: a non-key blob at least this big is a person
@@ -43,6 +47,17 @@ def lead(f):
 def greenness(f):
     """0..1 per pixel: lead() relative to a well-lit key."""
     return np.clip(lead(f) / GREEN_LEAD, 0, 1)
+
+
+def shadow(f):
+    """0..1 per pixel: how surely a pixel too dark for lead() is the key in shadow (the arms' and hands' contact
+    shadow on the green tablecloth), from its hue: green well above red and blue, however dark. On the same scale
+    as green_alpha's lead over the key's own (1: key)."""
+    f = f.astype(np.float32)
+    rb = np.maximum(f[..., 0], f[..., 2])
+    hue = f[..., 1] / np.maximum(rb, 1.0)
+    lo, hi = SHADOW_HUE
+    return np.where(f[..., 1] - rb >= SHADOW_LEAD, np.clip((hue - lo) / (hi - lo), 0, 1), 0).astype(np.float32)
 
 
 def key_lead(f):
@@ -109,7 +124,7 @@ def green_alpha(frame, vis, key=None):
     anchor stays where the key would eat dark green clothes, but not where the picture is plainly the key (between
     the arms, the tablecloth). The edge is then snapped to the picture. `key` is the take's key_lead (else this
     frame's)."""
-    rel = lead(frame) / max(1.0, key if key is not None else key_lead(frame))
+    rel = np.maximum(lead(frame) / max(1.0, key if key is not None else key_lead(frame)), shadow(frame))
     a_key = 1 - np.clip((rel - KEY_LO) / (KEY_HI - KEY_LO), 0, 1)
     near = cv2.GaussianBlur(cv2.dilate((vis > 0.25).astype(np.uint8), np.ones((NEAR_PX, NEAR_PX), np.uint8))
                             .astype(np.float32), (15, 15), 0)
