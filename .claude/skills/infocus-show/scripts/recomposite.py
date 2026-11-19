@@ -67,14 +67,15 @@ def on_failure(recorded, output, green=False):
     return "fallback" if recorded == output and not green else "keep"
 
 
-def take_ok(found, samples, areas, wanted, known_set=True):
+def take_ok(found, samples, areas, wanted, known_set=True, green=False):
     """(ok, reason): filmed on a set the package has, every anchor's face on at least half the sampled frames, a
-    scale the seat can reach, and a matte that doesn't jump."""
+    scale the seat can reach, and a matte that doesn't jump. A green-screen take skips the last two: its seat is
+    its camera's (share_transforms), and its key follows the anchor, so a change in area is them moving."""
     if not known_set:
         return False, "it was filmed on a set the package doesn't have, so the matte can't use it"
     if found < samples * MIN_FACE_SHARE:
         return False, f"the anchors' faces were found on only {found} of {samples} sampled frames"
-    if wanted is not None and not SCALE_RANGE[0] <= wanted <= SCALE_RANGE[1]:
+    if not green and wanted is not None and not SCALE_RANGE[0] <= wanted <= SCALE_RANGE[1]:
         return False, f"seating them needs a scale of {wanted:.2f}, outside {SCALE_RANGE[0]}-{SCALE_RANGE[1]}"
     if areas:
         a = np.asarray(areas, np.float32)
@@ -84,7 +85,7 @@ def take_ok(found, samples, areas, wanted, known_set=True):
         a = a[a > 0]                                                 # held frames (a flash) aren't jumps
         med = float(np.median(a))
         jumps = float(np.mean(np.abs(a - med) / med > MATTE_JUMP))
-        if jumps > MATTE_JUMP_SHARE:
+        if not green and jumps > MATTE_JUMP_SHARE:
             return False, f"the matte jumps on {jumps:.0%} of frames"
     return True, ""
 
@@ -548,11 +549,12 @@ def preview(edl, show_dir, seg, entry, theme, pkg, tmp):
 
 def adopt(entry, siblings):
     """A take re-rendered on its own (--only) takes its camera's transform from the takes already rendered, unless
-    it measured clearly differently (the camera moved)."""
+    it measured clearly differently (the camera moved). A green-screen camera never moves (share_transforms)."""
     if not siblings:
         return dict(entry)
     med = {k: float(np.median([t[k] for t in siblings])) for k in ("s", "tx", "ty")}
-    close = abs(entry["s"] - med["s"]) <= SHARE_SCALE and all(abs(entry[k] - med[k]) <= SHARE_PX for k in ("tx", "ty"))
+    close = entry.get("green") or (abs(entry["s"] - med["s"]) <= SHARE_SCALE
+                                   and all(abs(entry[k] - med[k]) <= SHARE_PX for k in ("tx", "ty")))
     return {**entry, **med} if close else dict(entry)
 
 
@@ -609,7 +611,7 @@ def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
     by_id = {s["id"]: s for s in takes}
     for e in entries:
         e["known"] = e["recorded_theme"] is not None or e["green"]
-        e["ok"], e["reason"] = take_ok(e["found"], e["samples"], [], e["wanted"], e["known"])
+        e["ok"], e["reason"] = take_ok(e["found"], e["samples"], [], e["wanted"], e["known"], e["green"])
         e["action"] = on_failure(e["recorded_theme"], theme, e["green"])
         skip = not e["ok"] and e["action"] == "fallback"
         e.update(status="fallback" if skip else "recomposited",
@@ -624,7 +626,7 @@ def render_all(edl, show_dir, takes, entries, theme, pkg, workers, tmp):
             areas = render_take(pool, edl, show_dir, seg, e, theme, pkg, workers, tmp)
             render_s += time.time() - t0
             done += seg["out"] - seg["in"]
-            ok, reason = take_ok(e["found"], e["samples"], areas, e["wanted"], e["known"])
+            ok, reason = take_ok(e["found"], e["samples"], areas, e["wanted"], e["known"], e["green"])
             if not e["ok"] or not ok:
                 e["flag"] = flag(e["id"], e["reason"] or reason, e["action"])
                 if e["action"] == "fallback":

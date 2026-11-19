@@ -81,13 +81,22 @@ def test_alpha_ignores_people_vision_didnt_keep():
     assert a[800, 1440] > 0.98 and a[800, 480] < 0.01
 
 
-def test_alpha_keeps_green_clothes_deep_inside_the_anchor():
+def test_alpha_keeps_dark_green_clothes_deep_inside_the_anchor():
     f = green_frame([0.5])
-    f[700:1000, 900:1020] = KEY                                 # a green tie
+    f[700:1000, 900:1020] = (40, 80, 45)                        # a dark green tie: green, but well short of the key
     vis = np.zeros((H, W), np.float32)
     vis[int(0.24 * H):, 768:1152] = 1
     a = green_screen.green_alpha(f, vis)
     assert a[850, 960] > 0.9
+
+
+def test_alpha_drops_the_key_showing_inside_vision_matte():
+    f = green_frame([0.5])
+    f[880:940, 900:1020] = KEY                                  # the screen between the arms and the body
+    vis = np.zeros((H, W), np.float32)
+    vis[int(0.24 * H):, 768:1152] = 1                           # Vision fills the gap in
+    a = green_screen.green_alpha(f, vis)
+    assert a[910, 960] < 0.05
 
 
 def test_soft_edge_is_partial():
@@ -99,7 +108,7 @@ def test_soft_edge_is_partial():
     assert 0.1 < a[500, 950] < 0.9
 
 
-def test_despill_pulls_green_out_of_edges_only():
+def test_despill_pulls_green_out_of_the_whole_anchor():
     f = np.zeros((40, 40, 3), np.uint8)
     f[...] = (150, 190, 140)                                    # a white shirt with green spill
     a = np.zeros((40, 40), np.float32)
@@ -107,7 +116,8 @@ def test_despill_pulls_green_out_of_edges_only():
     a[:, 20] = 0.5
     out = green_screen.despill(f, a)
     assert out[20, 20, 1] == 145                                 # edge: green no higher than red and blue's mean
-    assert out[20, 0, 1] == 190                                  # far from the edge: untouched
+    assert out[20, 0, 1] == 145                                  # middle too (the tablecloth's bounce on the hands)
+    assert out[20, 39, 1] == 190                                 # outside the anchor: untouched
     assert f[20, 20, 1] == 190                                   # input untouched
     skin = np.full((40, 40, 3), (200, 150, 130), np.uint8)
     assert (green_screen.despill(skin, a) == skin).all()          # red above green: nothing to pull
