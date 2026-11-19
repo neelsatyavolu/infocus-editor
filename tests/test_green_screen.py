@@ -99,6 +99,31 @@ def test_alpha_drops_the_key_showing_inside_vision_matte():
     assert a[910, 960] < 0.05
 
 
+def test_the_arms_contact_shadow_on_the_green_table_is_keyed():
+    # Measured on the 11-20-2026 show: under a forearm resting on the green tablecloth, a dark green shadow line
+    # (too dark for the key's brightness floor) stayed on as a black sliver between the arm and the virtual table.
+    f = green_frame([0.5])
+    f[960:966, 700:1200] = (19, 39, 17)                         # the shadow line
+    f[966:970, 700:1200] = (16, 62, 27)                         # shadow fading into the cloth
+    f[900:960, 700:1200] = (110, 85, 60)                        # the forearm
+    vis = np.zeros((H, W), np.float32)
+    vis[int(0.24 * H):, 650:1250] = 1                           # Vision's matte runs over the shadow
+    a = green_screen.green_alpha(f, vis)
+    assert a[963, 950] < 0.1 and a[968, 950] < 0.1
+    assert a[930, 950] > 0.98
+
+
+def test_dark_hair_and_black_clothes_with_a_little_spill_are_kept():
+    f = green_frame([0.5])
+    f[300:400, 900:1020] = (26, 41, 29)                         # dark hair, green spill (real sample)
+    f[700:800, 900:1020] = (20, 26, 18)                         # a black hoodie
+    f[800:900, 900:1020] = (43, 52, 29)                         # skin in shadow over the cloth
+    vis = np.zeros((H, W), np.float32)
+    vis[int(0.24 * H):, 768:1152] = 1
+    a = green_screen.green_alpha(f, vis)
+    assert a[350, 960] > 0.98 and a[750, 960] > 0.98 and a[850, 960] > 0.98
+
+
 def test_soft_edge_is_partial():
     f = green_frame([])
     f[:, 900:1000] = (0.5 * np.array(KEY) + 0.5 * np.array((200, 160, 140))).astype(np.uint8)   # half-hair, half-key
