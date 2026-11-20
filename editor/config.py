@@ -20,7 +20,7 @@ BACKEND_NAMES = ("claude", "codex", "grok")
 # The Portal's other address → the one it uses. infocuspaly.com is the main one again: the school network
 # blocks infocusportal.com (newly registered), so a config.toml written with it moves back.
 MOVED_PORTALS = {"https://infocusportal.com": "https://infocuspaly.com"}
-# Until the Portal sends its agentOrder: Codex (gpt-6.1-sol low) first, then Claude (Sonnet 5.5 high).
+# Until the Portal sends its agentOrder: Codex (gpt-6.2-sol medium) first, then Claude (Sonnet 5.5 high).
 DEFAULT_AGENTS = ("codex", "claude", "grok")
 
 Keychain = Callable[[str], "str | None"]
