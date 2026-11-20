@@ -18,13 +18,14 @@ from editor.config import Config
 from editor.joblog import Transcript, clip
 from editor.prompts import instruction
 
-# Pinned so a CLI update can't change them. The 2026-10-23 bake-off: gpt-6.1-sol low cut the golden show as well as
-# Claude Sonnet 5.5 high for about a quarter of the cost.
-MODEL = "gpt-6.1-sol"
-EFFORT = "low"
+# Pinned so a CLI update can't change them. The 2026-11-18 benchmark (17 model x effort setups on the 10-21 golden
+# show): gpt-6.2-sol medium aired in 10.5 min for about $1.39, against 19.8 min and $1.48 for gpt-6.1-sol low, with the
+# same quality. Higher efforts cost more with no gain.
+MODEL = "gpt-6.2-sol"
+EFFORT = "medium"
 
 # What MODEL's requests would cost on the API, standard tier, USD per 1M tokens (developers.openai.com/api/docs/
-# pricing, 2026-10-27). The edit runs on a ChatGPT plan, so this is an estimate to compare with Claude's, not a bill.
+# pricing, checked for gpt-6.2-sol 2026-11-17). The edit runs on a ChatGPT plan, so this is an estimate to compare with Claude's, not a bill.
 # A request over 272K input tokens is billed at the long-context rates for the whole request.
 PRICES = {"input": 2.00, "cached": 0.10, "cache_write": 2.50, "output": 10.00}
 LONG_PRICES = {"input": 4.00, "cached": 0.20, "cache_write": 5.00, "output": 15.00}
